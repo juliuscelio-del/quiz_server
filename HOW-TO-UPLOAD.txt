@@ -1,0 +1,14 @@
+HOW TO PUT THIS ON GITHUB (Teacher app)
+
+1. Unzip this file. You get the project files directly (no extra folder).
+2. On github.com click + > New repository. Name it (example: gnhs-quiz-teacher).
+   Choose PRIVATE (important: the code contains your license secret and admin password).
+3. Click "uploading an existing file", drag ALL unzipped files and folders in,
+   INCLUDING the hidden folder ".github"
+   (Mac: Cmd+Shift+. in Finder. Windows: View > Hidden items). Click "Commit changes".
+4. Actions tab > "Build Teacher app" > "Run workflow".
+5. When green, open the run and download the files under "Artifacts".
+
+IF YOU DON'T SEE ".github/workflows/build.yml" in your repo:
+   Add file > Create new file, name it  .github/workflows/build.yml
+   and paste the contents of "build.yml.backup" from this zip, then commit.

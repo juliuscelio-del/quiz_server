@@ -1,0 +1,46 @@
+{
+  "name": "gnhs-quiz-teacher",
+  "version": "1.0.0",
+  "description": "GNHS Quiz teacher app - quiz server and dashboard in one app, all data kept in the app's own data folder",
+  "main": "electron/main.js",
+  "author": "Julius Celio",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/data-paths.test.js",
+    "dist": "electron-builder --publish never"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mammoth": "^1.12.2",
+    "multer": "^2.0.0",
+    "socket.io": "^4.8.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "ph.edu.gnhs.quiz.teacher",
+    "productName": "GNHS Quiz Teacher",
+    "asar": false,
+    "files": ["electron/**/*", "server/**/*", "package.json"],
+    "directories": { "output": "dist" },
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "identity": null
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

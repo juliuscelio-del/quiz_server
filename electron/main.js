@@ -167,6 +167,8 @@ function waitForServer(ms = 20000) {
 // ── Window + menu ────────────────────────────────────────────────────────────
 let win = null;
 let quitting = false;
+let confirmedClose = false;   // the teacher has answered the exit dialog
+let askingToClose = false;    // the exit dialog is currently open
 
 function showStudentLink() {
   const ips = lanIps();
@@ -239,6 +241,7 @@ function importFromMenu() {
   });
   if (ok !== 0) return;
   fs.writeFileSync(PENDING_IMPORT, src);
+  confirmedClose = true;   // skip the exit dialog; the app restarts right away
   app.relaunch();
   app.quit();
 }
@@ -277,20 +280,49 @@ function createWindow() {
     if (isMain && code !== -3) setTimeout(() => win && win.loadURL(`http://localhost:${PORT}/dashboard`), 1000);
   });
   // Closing the window stops the quiz for every student, so ask first.
-  win.on("close", (e) => {
-    if (quitting) return;
-    const r = dialog.showMessageBoxSync(win, {
-      type: "warning", buttons: ["Keep running", "Stop server and quit"], defaultId: 0, cancelId: 0,
-      message: "Quit the teacher app?",
-      detail: "This stops the quiz server. Students will be disconnected.",
-    });
-    if (r === 0) e.preventDefault();
+  win.on("close", async (e) => {
+    if (quitting || confirmedClose) return;
+    e.preventDefault();
+    if (askingToClose) return;
+    askingToClose = true;
+    try {
+      const r = await dialog.showMessageBox(win, {
+        type: "question",
+        title: "Exit GNHS Quiz Teacher",
+        buttons: ["Save and exit", "Exit without saving", "Cancel"],
+        defaultId: 0, cancelId: 2,
+        message: "Save your work before exiting?",
+        detail: "Exiting stops the quiz server. Students will be disconnected.",
+      });
+      if (r.response === 2) return;                 // Cancel: stay open
+
+      if (r.response === 0) {                       // Save first
+        try {
+          await saveNow();
+        } catch (err) {
+          const f = await dialog.showMessageBox(win, {
+            type: "error", buttons: ["Exit anyway", "Stay open"], defaultId: 1, cancelId: 1,
+            message: "Could not save.", detail: String(err.message || err),
+          });
+          if (f.response === 1) return;
+        }
+      }
+      confirmedClose = true;
+      win.close();
+    } finally {
+      askingToClose = false;
+    }
   });
 }
 
 // On quit: let the server flush everything, then keep a safety copy.
-app.on("before-quit", () => {
+app.on("before-quit", (e) => {
   if (quitting) return;
+  if (!confirmedClose && win && !win.isDestroyed()) {
+    e.preventDefault();
+    win.close();            // shows the Save / Exit / Cancel dialog
+    return;
+  }
   quitting = true;
   const realExit = process.exit;
   process.exit = () => {

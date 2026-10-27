@@ -9,9 +9,10 @@
   "scripts": {
     "start": "electron .",
     "test": "node test/data-paths.test.js",
-    "dist": "electron-builder --publish never"
+    "dist": "electron-builder"
   },
   "dependencies": {
+    "electron-updater": "^6.3.0",
     "express": "^4.19.2",
     "mammoth": "^1.12.2",
     "multer": "^2.0.0",
@@ -27,6 +28,12 @@
     "asar": false,
     "files": ["electron/**/*", "server/**/*", "package.json"],
     "directories": { "output": "dist" },
+    "publish": [{
+      "provider": "github",
+      "owner": "juliuscelio-del",
+      "repo": "quiz_server",
+      "releaseType": "release"
+    }],
     "mac": {
       "category": "public.app-category.education",
       "target": [
@@ -37,8 +44,7 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] }
       ]
     },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }

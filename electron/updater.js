@@ -7,18 +7,23 @@ const isMac = process.platform === 'darwin';
 // How long the result popups stay on screen (milliseconds)
 const UP_TO_DATE_MS = 10000;   // "Okie pa ag version..." popup
 const NOTICE_MS = 4000;        // offline / error popups
+const RESTART_MS = 5000;       // countdown before the app restarts to install the update
 const CHECK_FAILSAFE_MS = 60000; // if a check hangs this long, let the popup close so nobody is stuck
 
 // Popup window size (includes 20px around the card for the shadow)
 const W = 480, H = 300;
 
-autoUpdater.autoDownload = false;
+// Windows/Linux: download automatically and replace the old app.
+// Mac: unsigned apps can't self-install, so Mac keeps the manual "open download page" flow.
+autoUpdater.autoDownload = !isMac;
+autoUpdater.autoInstallOnAppQuit = !isMac;   // if the student never restarts, the update installs when the app is closed
 
 let mainWin = null;
 let beforeInstall = async () => {};
 let popup = null;
 let closeTimer = null;
 let checking = false;
+let downloading = false;
 let finished = false;      // a check completed (found / not found)
 let shownOffline = false;
 let locked = false;        // true while the popup must not be closed by the student (checking / countdown / downloading)
@@ -102,10 +107,11 @@ function pageUrl({ title, message, icon = 'check', spinner, progress, buttons = 
 }
 
 // ── Popup window (centered on the laptop screen) ────────────────────────────
-function show(state, autoCloseMs) {
+// onDone: what to run when autoCloseMs ends (defaults to just closing the popup)
+function show(state, autoCloseMs, onDone) {
   clearTimeout(closeTimer);
   // The student cannot close the popup while it is checking, counting down or downloading.
-  // Popups with their own buttons (Later / Update / Restart / Close) stay closable through those buttons.
+  // Popups with their own buttons stay closable through those buttons.
   locked = !!(state.spinner || autoCloseMs || state.progress != null);
 
   if (!popup || popup.isDestroyed()) {
@@ -135,7 +141,7 @@ function show(state, autoCloseMs) {
     });
   }
   popup.loadURL(pageUrl(Object.assign({}, state, { countdown: autoCloseMs })));
-  if (autoCloseMs) closeTimer = setTimeout(closePopup, autoCloseMs);
+  if (autoCloseMs) closeTimer = setTimeout(onDone || closePopup, autoCloseMs);
 }
 
 function closePopup() {
@@ -150,39 +156,47 @@ function closePopup() {
 // never let the locked popup block the app from quitting
 app.on('before-quit', () => { forceClose = true; });
 
+// Save data, then close the old app and install the new one (and reopen it)
+async function installNow() {
+  clearTimeout(closeTimer);
+  try { await beforeInstall(); } catch (e) { /* never block the update because saving failed */ }
+  closePopup();
+  // (isSilent = true, isForceRunAfter = true) -> installs quietly and reopens the new version
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+}
+
 async function onAction(action) {
   if (action === 'later') return closePopup();
-  if (action === 'update') {
-    if (isMac) {                       // unsigned Mac apps can't self-install
-      shell.openExternal(RELEASES);
-      return closePopup();
-    }
-    show({ title: 'Downloading update...', message: 'Please wait.', icon: 'download', progress: 0 });
-    return autoUpdater.downloadUpdate().catch(() => {
-      show({
-        title: "Couldn't download", message: 'Please try again later.', icon: 'alert',
-        buttons: [{ label: 'Close', action: 'later' }]
-      });
-    });
+  if (action === 'update') {         // Mac only: unsigned apps can't self-install
+    shell.openExternal(RELEASES);
+    return closePopup();
   }
-  if (action === 'restart') {
-    await beforeInstall();             // save quiz data + skip the exit dialog
-    closePopup();
-    autoUpdater.quitAndInstall();
-  }
+  if (action === 'restart') return installNow();
 }
 
 // ── Updater events ──────────────────────────────────────────────────────────
 autoUpdater.on('update-available', () => {
   finished = true;
+  if (isMac) {
+    // Mac can't auto-install: send the student to the download page
+    show({
+      title: 'Update',
+      message: 'Pislita ag update basin naa Updated na App',
+      icon: 'download',
+      buttons: [
+        { label: 'Later', action: 'later' },
+        { label: 'Update', action: 'update', primary: true }
+      ]
+    });
+    return;
+  }
+  // Windows/Linux: download starts by itself (autoDownload = true)
+  downloading = true;
   show({
-    title: 'Update',
-    message: 'Pislita ag update basin naa Updated na App',
+    title: 'Downloading update...',
+    message: 'Please wait. Maka-install ra ni sa kaugalingon.',
     icon: 'download',
-    buttons: [
-      { label: 'Later', action: 'later' },
-      { label: 'Update', action: 'update', primary: true }
-    ]
+    progress: 0
   });
 });
 
@@ -201,20 +215,27 @@ autoUpdater.on('download-progress', p => {
 });
 
 autoUpdater.on('update-downloaded', () => {
+  downloading = false;
   if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(-1);
+  // Restarts by itself after the countdown; "Restart now" skips the wait
   show({
     title: 'Update ready',
-    message: 'Ready na ang update. Your data will be saved first, then the app restarts.',
+    message: 'Your data will be saved first, then the app restarts and replaces the old version.',
     icon: 'check',
-    buttons: [
-      { label: 'Later', action: 'later' },
-      { label: 'Restart', action: 'restart', primary: true }
-    ]
-  });
+    buttons: [{ label: 'Restart now', action: 'restart', primary: true }]
+  }, RESTART_MS, installNow);
 });
 
 autoUpdater.on('error', () => {
   if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(-1);
+  if (downloading) {
+    downloading = false;
+    show({
+      title: "Couldn't download", message: 'Please try again later.', icon: 'alert',
+      buttons: [{ label: 'Close', action: 'later' }]
+    });
+    return;
+  }
   if (checking) {
     show({ title: "Couldn't check for updates", message: 'Check your internet connection.', icon: 'alert' }, NOTICE_MS);
   }

@@ -7,6 +7,7 @@ const isMac = process.platform === 'darwin';
 // How long the result popups stay on screen (milliseconds)
 const UP_TO_DATE_MS = 10000;   // "Okie pa ag version..." popup
 const NOTICE_MS = 4000;        // offline / error popups
+const CHECK_FAILSAFE_MS = 60000; // if a check hangs this long, let the popup close so nobody is stuck
 
 // Popup window size (includes 20px around the card for the shadow)
 const W = 480, H = 300;
@@ -20,6 +21,8 @@ let closeTimer = null;
 let checking = false;
 let finished = false;      // a check completed (found / not found)
 let shownOffline = false;
+let locked = false;        // true while the popup must not be closed by the student (checking / countdown / downloading)
+let forceClose = false;    // set when the app itself closes the popup
 
 // ── Icons (inline SVG) ──────────────────────────────────────────────────────
 const SVG = (path) =>
@@ -43,44 +46,50 @@ function pageUrl({ title, message, icon = 'check', spinner, progress, buttons = 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:transparent;overflow:hidden;
-      font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;user-select:none;-webkit-user-select:none}
+      font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"SF Pro Text",Roboto,sans-serif;
+      -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+      user-select:none;-webkit-user-select:none}
     body{padding:20px}
     .card{position:relative;height:100%;border-radius:22px;overflow:hidden;
-      background:linear-gradient(165deg,#ffffff 0%,#f0f9f2 100%);
-      border:1px solid #dcefe2;box-shadow:0 18px 50px rgba(20,60,35,.28),0 2px 8px rgba(20,60,35,.12);
+      background:linear-gradient(165deg,#ffffff 0%,#eef8f0 100%);
+      border:1px solid #d3eada;box-shadow:0 18px 50px rgba(20,60,35,.28),0 2px 8px rgba(20,60,35,.12);
       display:flex;flex-direction:column;align-items:center;justify-content:center;
-      text-align:center;padding:26px 28px 30px;
+      text-align:center;padding:30px 34px 34px;
       -webkit-app-region:drag;animation:pop .28s ease-out both}
     .card::before{content:"";position:absolute;top:0;left:0;right:0;height:6px;
       background:linear-gradient(90deg,#2e7d32,#66bb6a,#2e7d32)}
     @keyframes pop{from{opacity:0;transform:scale(.93) translateY(10px)}to{opacity:1;transform:none}}
-    .x{position:absolute;top:12px;right:14px;width:28px;height:28px;border:none;border-radius:50%;
-      background:transparent;color:#8a9a8f;font-size:18px;line-height:28px;cursor:pointer;padding:0;-webkit-app-region:no-drag}
-    .x:hover{background:#e6f2e9;color:#2e7d32}
-    .icon{width:68px;height:68px;border-radius:50%;margin:0 0 14px;display:flex;align-items:center;justify-content:center;
+    .icon{width:68px;height:68px;border-radius:50%;margin:0 0 16px;display:flex;align-items:center;justify-content:center;
       background:linear-gradient(135deg,#43a047,#2e7d32);box-shadow:0 8px 20px rgba(46,125,50,.35)}
     .icon.warn{background:linear-gradient(135deg,#ffa726,#ef6c00);box-shadow:0 8px 20px rgba(239,108,0,.35)}
-    .ring{width:56px;height:56px;margin:6px 0 20px;border-radius:50%;
+    .ring{width:56px;height:56px;margin:4px 0 22px;border-radius:50%;
       border:5px solid #d7ecdc;border-top-color:#2e7d32;animation:spin .9s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    h2{margin:0 0 8px;font-size:19px;line-height:1.35;font-weight:700;color:#1b4332}
-    p{margin:0 0 4px;color:#5b6b61;font-size:14px;line-height:1.5}
-    .row{margin-top:18px;display:flex;gap:10px;justify-content:center;-webkit-app-region:no-drag}
-    button.b,.row button{padding:10px 26px;border:1px solid #cfe3d4;border-radius:999px;background:#fff;color:#2e5d3a;
-      font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
+
+    /* ── text ── */
+    h2{margin:0 0 10px;max-width:380px;font-size:21px;line-height:1.3;font-weight:750;letter-spacing:-.01em;
+      color:#14432c;text-wrap:balance;overflow-wrap:break-word}
+    h2::after{content:"";display:block;width:34px;height:3px;margin:12px auto 0;border-radius:99px;
+      background:linear-gradient(90deg,#66bb6a,#2e7d32)}
+    p{margin:2px 0 0;max-width:360px;font-size:15px;line-height:1.6;font-weight:450;color:#46594d;
+      text-wrap:pretty;overflow-wrap:break-word}
+
+    .row{margin-top:20px;display:flex;gap:10px;justify-content:center;-webkit-app-region:no-drag}
+    .row button{padding:11px 28px;border:1px solid #cfe3d4;border-radius:999px;background:#fff;color:#2e5d3a;
+      font-family:inherit;font-size:14px;font-weight:650;letter-spacing:.01em;cursor:pointer;transition:all .15s}
     .row button:hover{background:#f0f9f2}
     .row button.p{background:linear-gradient(135deg,#43a047,#2e7d32);color:#fff;border-color:#2e7d32;
       box-shadow:0 6px 16px rgba(46,125,50,.35)}
     .row button.p:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(46,125,50,.45)}
-    .bar{width:82%;height:10px;background:#dcefe2;border-radius:999px;overflow:hidden;margin-top:16px}
+    .bar{width:82%;height:10px;background:#dcefe2;border-radius:999px;overflow:hidden;margin-top:18px}
     .bar div{height:100%;border-radius:999px;background:linear-gradient(90deg,#43a047,#81c784);
       width:${progress || 0}%;transition:width .25s}
     .cd{position:absolute;left:0;bottom:0;height:5px;background:linear-gradient(90deg,#66bb6a,#2e7d32);
       animation:cd ${countdown || 0}ms linear forwards}
     @keyframes cd{from{width:100%}to{width:0}}
+    @media (prefers-reduced-motion:reduce){*{animation-duration:.01s!important}}
   </style></head><body>
     <div class="card">
-      <button class="x" onclick="location.href='gnhs://later'" title="Close">&times;</button>
       ${iconHtml}
       <h2>${title}</h2>
       ${message ? `<p>${message}</p>` : ''}
@@ -95,6 +104,10 @@ function pageUrl({ title, message, icon = 'check', spinner, progress, buttons = 
 // ── Popup window (centered on the laptop screen) ────────────────────────────
 function show(state, autoCloseMs) {
   clearTimeout(closeTimer);
+  // The student cannot close the popup while it is checking, counting down or downloading.
+  // Popups with their own buttons (Later / Update / Restart / Close) stay closable through those buttons.
+  locked = !!(state.spinner || autoCloseMs || state.progress != null);
+
   if (!popup || popup.isDestroyed()) {
     const ref = mainWin && !mainWin.isDestroyed()
       ? screen.getDisplayMatching(mainWin.getBounds())
@@ -113,7 +126,8 @@ function show(state, autoCloseMs) {
     });
     popup.setAlwaysOnTop(true, 'floating');
     popup.once('ready-to-show', () => { if (popup && !popup.isDestroyed()) popup.show(); });
-    popup.on('closed', () => { popup = null; });
+    popup.on('close', e => { if (locked && !forceClose) e.preventDefault(); });   // blocks Alt+F4 / Cmd+W while locked
+    popup.on('closed', () => { popup = null; forceClose = false; });
     popup.webContents.on('will-navigate', (e, url) => {
       if (!url.startsWith('gnhs://')) return;
       e.preventDefault();
@@ -126,8 +140,15 @@ function show(state, autoCloseMs) {
 
 function closePopup() {
   clearTimeout(closeTimer);
-  if (popup && !popup.isDestroyed()) popup.close();
+  locked = false;
+  if (popup && !popup.isDestroyed()) {
+    forceClose = true;
+    popup.close();
+  }
 }
+
+// never let the locked popup block the app from quitting
+app.on('before-quit', () => { forceClose = true; });
 
 async function onAction(action) {
   if (action === 'later') return closePopup();
@@ -215,11 +236,14 @@ async function check() {
   }
   checking = true;
   show({ title: 'paabot kadali....mangita tag update...', spinner: true });
+  // safety net: if the check hangs, unlock and close the popup so the student is never stuck
+  const failsafe = setTimeout(closePopup, CHECK_FAILSAFE_MS);
   try {
     await autoUpdater.checkForUpdates();
   } catch (e) {
     /* handled by the 'error' event */
   } finally {
+    clearTimeout(failsafe);
     checking = false;
   }
 }
@@ -228,6 +252,7 @@ async function check() {
 function startAutoCheck(win, onBeforeInstall) {
   mainWin = win;
   if (onBeforeInstall) beforeInstall = onBeforeInstall;
+  if (win && win.on) win.on('closed', closePopup);   // closing the app never leaves the popup behind
   check();                          // every time the app opens
   const t = setInterval(() => {     // if offline at launch, retry when internet returns
     if (finished) return clearInterval(t);

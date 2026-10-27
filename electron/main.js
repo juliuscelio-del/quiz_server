@@ -11,6 +11,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const http = require("http");
+const { startAutoCheck } = require("./updater");
 
 const PORT = 3000;
 
@@ -358,6 +359,10 @@ app.whenReady().then(async () => {
     return app.exit(1);
   }
   createWindow();
+  startAutoCheck(win, async () => {
+    try { await saveNow(); } catch (_) {}   // save the quiz data first
+    confirmedClose = true;                  // skip the Save/Exit dialog
+  });
 });
 
 app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });

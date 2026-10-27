@@ -1,6 +1,6 @@
 {
   "name": "gnhs-quiz-teacher",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "GNHS Quiz teacher app - quiz server and dashboard in one app, all data kept in the app's own data folder",
   "main": "electron/main.js",
   "author": "Julius Celio",

@@ -1,3 +1,4 @@
+<!-- WIFI_FIX_APPLIED -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1816,14 +1817,14 @@ document.addEventListener("copy",  e => e.preventDefault());
 document.addEventListener("cut",   e => e.preventDefault());
 document.addEventListener("paste", e => {
   e.preventDefault();
-  socket.emit("paste-detected");
+  socket.volatile.emit("paste-detected");
 });
 
 document.addEventListener("keydown", e => {
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && ["c","v","u","s","p","a"].includes(e.key.toLowerCase())) {
     e.preventDefault();
-    if (e.key.toLowerCase() === "v") socket.emit("paste-detected");
+    if (e.key.toLowerCase() === "v") socket.volatile.emit("paste-detected");
   }
   if (["F12","F5"].includes(e.key)) e.preventDefault();
   if (ctrl && e.shiftKey && ["i","j","c"].includes(e.key.toLowerCase())) e.preventDefault();
@@ -1836,25 +1837,53 @@ setInterval(() => {
   const heightDiff = window.outerHeight - window.innerHeight > threshold;
   if ((widthDiff || heightDiff) && !devtoolsOpen) {
     devtoolsOpen = true;
-    socket.emit("paste-detected");
+    socket.volatile.emit("paste-detected");
     console.clear();
   }
   if (!widthDiff && !heightDiff) devtoolsOpen = false;
 }, 1000);
 
 let tabSwitchCount = 0;
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden && studentId) {
+
+// Tab-switch tracking (network-safe): a strike is only COUNTED after a hold
+// period, and is discarded if any network event (offline, disconnect,
+// reconnect) happens during the hold or within the grace window.
+const HOLD_MS      = 20000;  // wait before a strike is committed
+const NET_GRACE_MS = 45000;  // ignore strikes this long after any network event
+const DEDUPE_MS    = 1500;   // blur + visibilitychange fire together
+let lastNetworkEventAt = 0;
+let lastTabSwitchAt    = 0;
+let pendingSwitches    = [];
+
+function noteNetworkEvent() {
+  lastNetworkEventAt = Date.now();
+  pendingSwitches.forEach(clearTimeout);
+  pendingSwitches = [];
+}
+socket.on("connect",    noteNetworkEvent);
+socket.on("disconnect", noteNetworkEvent);
+window.addEventListener("offline", noteNetworkEvent);
+window.addEventListener("online",  noteNetworkEvent);
+
+function registerTabSwitch() {
+  if (!studentId) return;
+  const now = Date.now();
+  if (now - lastTabSwitchAt < DEDUPE_MS) return;
+  lastTabSwitchAt = now;
+  if (now - lastNetworkEventAt < NET_GRACE_MS) return;
+
+  const t = setTimeout(() => {
+    pendingSwitches = pendingSwitches.filter(x => x !== t);
+    if (!socket.connected || !navigator.onLine) return;
+    if (Date.now() - lastNetworkEventAt < NET_GRACE_MS) return;
     tabSwitchCount++;
     socket.emit("tab-switch", { count: tabSwitchCount });
-  }
-});
-window.addEventListener("blur", () => {
-  if (studentId) {
-    tabSwitchCount++;
-    socket.emit("tab-switch", { count: tabSwitchCount });
-  }
-});
+  }, HOLD_MS);
+  pendingSwitches.push(t);
+}
+
+document.addEventListener("visibilitychange", () => { if (document.hidden) registerTabSwitch(); });
+window.addEventListener("blur", registerTabSwitch);
 
 // ── Per-section-subject exam status ──────────────────────────────────────────
 // Every section-subject (e.g. "VICENTE LIM-MATH") has its own exam, with its own

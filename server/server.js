@@ -1,3 +1,4 @@
+// WIFI_FIX_APPLIED
 /**
  * ═══════════════════════════════════════════════════════════════
  *   GUADALUPE NATIONAL HIGH SCHOOL — QUIZ SYSTEM
@@ -33,8 +34,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  pingTimeout: 10000,
+  pingInterval: 8000,
 });
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -1934,6 +1935,9 @@ io.on("connection", (socket) => {
       const sess = activeSessions.get(resumeId);
       sess.socketId = socket.id;
       sess.status   = "active";
+      sess.reconnectedAt = Date.now();
+      sess.networkDrop = false;
+      delete sess.disconnectedAt;
       if (resumedAnswered > sess.answeredCount) sess.answeredCount = resumedAnswered;
     } else {
       activeSessions.set(resumeId, {
@@ -2376,6 +2380,10 @@ io.on("connection", (socket) => {
   // ── Tab-switch / focus-loss tracking ─────────────────────────────────────
   socket.on("tab-switch", ({ count } = {}) => {
     if (!socket.studentData || socket.studentData.submitted) return;
+
+    // Don't count strikes that arrive right after a reconnect (wifi drop).
+    const reconnSess = activeSessions.get(socket.studentData.id);
+    if (reconnSess && reconnSess.reconnectedAt && Date.now() - reconnSess.reconnectedAt < 45000) return;
 
     socket.studentData.tabSwitches = typeof count === "number" ? count : socket.studentData.tabSwitches + 1;
 
@@ -3460,8 +3468,12 @@ io.on("connection", (socket) => {
     loginAttempts.delete(socket.id);
     if (socket.studentData && !socket.studentData.submitted) {
       console.log(`🔌 Disconnected (unsubmitted): ${socket.studentData.name} | Reason: ${reason}`);
-      if (activeSessions.has(socket.studentData.id)) {
-        activeSessions.get(socket.studentData.id).status = "disconnected";
+      const sess = activeSessions.get(socket.studentData.id);
+      // Ignore stale sockets that were already replaced by a resume.
+      if (sess && sess.socketId === socket.id) {
+        sess.status         = "disconnected";
+        sess.networkDrop    = ["transport close", "transport error", "ping timeout"].includes(reason);
+        sess.disconnectedAt = Date.now();
         broadcastActiveSessions();
         broadcastRoster();
       }

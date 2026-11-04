@@ -1,7 +1,14 @@
 const { app, BrowserWindow, net, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const https = require('https');
+const { spawn, execFile } = require('child_process');
 
-const RELEASES = 'https://github.com/juliuscelio-del/quiz_server/releases/latest';
+const OWNER = 'juliuscelio-del';
+const REPO = 'quiz_server';
+const RELEASES = `https://github.com/${OWNER}/${REPO}/releases/latest`;
 const isMac = process.platform === 'darwin';
 
 // How long the result popups stay on screen (milliseconds)
@@ -13,8 +20,9 @@ const CHECK_FAILSAFE_MS = 60000; // if a check hangs this long, let the popup cl
 // Popup window size (includes 20px around the card for the shadow)
 const W = 480, H = 300;
 
-// Windows/Linux: download automatically and replace the old app.
-// Mac: unsigned apps can't self-install, so Mac keeps the manual "open download page" flow.
+// Windows/Linux: electron-updater downloads and replaces the old app.
+// Mac: the app is not Apple-signed, so electron-updater can't install it. On Mac this file
+//      downloads the release .zip itself, swaps the .app and reopens it (see startMacUpdate).
 autoUpdater.autoDownload = !isMac;
 autoUpdater.autoInstallOnAppQuit = !isMac;   // if the student never restarts, the update installs when the app is closed
 
@@ -28,6 +36,9 @@ let finished = false;      // a check completed (found / not found)
 let shownOffline = false;
 let locked = false;        // true while the popup must not be closed by the student (checking / countdown / downloading)
 let forceClose = false;    // set when the app itself closes the popup
+let macInfo = null;        // update info found on Mac
+let pendingMac = null;     // Mac: function that swaps the app and restarts
+let installing = false;
 
 // ── Icons (inline SVG) ──────────────────────────────────────────────────────
 const SVG = (path) =>
@@ -153,32 +164,151 @@ function closePopup() {
   }
 }
 
+function setFill(pct) {
+  if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(pct / 100);
+  if (popup && !popup.isDestroyed()) {
+    popup.webContents.executeJavaScript(
+      `var f=document.getElementById('fill'); if(f) f.style.width='${Math.round(pct)}%';`
+    ).catch(() => {});
+  }
+}
+
 // never let the locked popup block the app from quitting
 app.on('before-quit', () => { forceClose = true; });
 
 // Save data, then close the old app and install the new one (and reopen it)
 async function installNow() {
+  if (installing) return;
+  installing = true;
   clearTimeout(closeTimer);
   try { await beforeInstall(); } catch (e) { /* never block the update because saving failed */ }
   closePopup();
+  if (pendingMac) { pendingMac(); return; }   // Mac: swap the .app and reopen
   // (isSilent = true, isForceRunAfter = true) -> installs quietly and reopens the new version
   setImmediate(() => autoUpdater.quitAndInstall(true, true));
 }
 
 async function onAction(action) {
   if (action === 'later') return closePopup();
-  if (action === 'update') {         // Mac only: unsigned apps can't self-install
-    shell.openExternal(RELEASES);
-    return closePopup();
-  }
+  if (action === 'update') return startMacUpdate();   // Mac: download inside the app
+  if (action === 'web') { shell.openExternal(RELEASES); return closePopup(); }
   if (action === 'restart') return installNow();
 }
 
+// ── Mac: download the .zip inside the app, swap the .app, reopen ────────────
+function downloadFile(url, dest, onPct, redirects = 8) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'GNHS-Quiz-Teacher' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+        res.resume();
+        return resolve(downloadFile(res.headers.location, dest, onPct, redirects - 1));
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+      const total = parseInt(res.headers['content-length'] || '0', 10);
+      let got = 0;
+      const out = fs.createWriteStream(dest);
+      res.on('data', (c) => { got += c.length; if (total) onPct((got / total) * 100); });
+      res.pipe(out);
+      out.on('finish', () => out.close(() => resolve()));
+      out.on('error', reject);
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+function run(cmd, args) {
+  return new Promise((resolve, reject) =>
+    execFile(cmd, args, (e, so, se) => (e ? reject(new Error(se || e.message)) : resolve(so))));
+}
+
+async function startMacUpdate() {
+  const info = macInfo;
+  const appPath = path.resolve(process.execPath, '..', '..', '..');   // .../GNHS Quiz Teacher.app
+  let writable = true;
+  try { fs.accessSync(path.dirname(appPath), fs.constants.W_OK); } catch (e) { writable = false; }
+
+  const zips = ((info && info.files) || []).map(f => f.url).filter(u => /\.zip$/i.test(u));
+  const name = (process.arch === 'arm64'
+    ? zips.find(u => /arm64/i.test(u))
+    : zips.find(u => !/arm64/i.test(u))) || zips[0];
+
+  // Can't install automatically (app in a protected folder / no zip in the release): old way
+  if (!info || !name || !appPath.endsWith('.app') || !writable) {
+    shell.openExternal(RELEASES);
+    return closePopup();
+  }
+
+  const url = /^https?:/i.test(name)
+    ? name
+    : `https://github.com/${OWNER}/${REPO}/releases/download/v${info.version}/${encodeURIComponent(name)}`;
+
+  downloading = true;
+  show({
+    title: 'Downloading update...',
+    message: 'Please wait. Maka-install ra ni sa kaugalingon.',
+    icon: 'download',
+    progress: 0
+  });
+
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'gnhs-update-'));
+  try {
+    const zip = path.join(work, 'update.zip');
+    await downloadFile(url, zip, setFill);
+    const unpacked = path.join(work, 'new');
+    fs.mkdirSync(unpacked);
+    await run('/usr/bin/ditto', ['-x', '-k', zip, unpacked]);
+    const hit = fs.readdirSync(unpacked).find(n => n.endsWith('.app'));
+    if (!hit) throw new Error('No app inside the update');
+    const newApp = path.join(unpacked, hit);
+
+    const script = path.join(work, 'install.sh');
+    fs.writeFileSync(script, `#!/bin/sh
+PID="$1"; NEW="$2"; OLD="$3"; BAK="$OLD.old-update"
+i=0
+while kill -0 "$PID" 2>/dev/null && [ $i -lt 90 ]; do sleep 1; i=$((i+1)); done
+sleep 1
+rm -rf "$BAK"
+mv "$OLD" "$BAK" || { open "$OLD"; exit 1; }
+if mv "$NEW" "$OLD"; then
+  xattr -cr "$OLD" 2>/dev/null
+  codesign --force --deep -s - "$OLD" 2>/dev/null
+  rm -rf "$BAK"
+else
+  rm -rf "$OLD"; mv "$BAK" "$OLD"
+fi
+open "$OLD"
+rm -rf "${work}"
+`, { mode: 0o755 });
+
+    pendingMac = () => {
+      spawn('/bin/sh', [script, String(process.pid), newApp, appPath], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => app.quit(), 300);
+    };
+
+    downloading = false;
+    if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(-1);
+    show({
+      title: 'Update ready',
+      message: 'Your data will be saved first, then the app restarts and replaces the old version.',
+      icon: 'check',
+      buttons: [{ label: 'Restart now', action: 'restart', primary: true }]
+    }, RESTART_MS, installNow);
+  } catch (e) {
+    downloading = false;
+    try { fs.rmSync(work, { recursive: true, force: true }); } catch (_) {}
+    if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(-1);
+    show({
+      title: "Couldn't download", message: 'Please try again later.', icon: 'alert',
+      buttons: [{ label: 'Close', action: 'later' }, { label: 'Open page', action: 'web', primary: true }]
+    });
+  }
+}
+
 // ── Updater events ──────────────────────────────────────────────────────────
-autoUpdater.on('update-available', () => {
+autoUpdater.on('update-available', (info) => {
   finished = true;
   if (isMac) {
-    // Mac can't auto-install: send the student to the download page
+    macInfo = info;
     show({
       title: 'Update',
       message: 'Pislita ag update basin naa Updated na App',
@@ -205,14 +335,7 @@ autoUpdater.on('update-not-available', () => {
   show({ title: 'Okie pa ag version. Updated pa ne. Padajun gamit', icon: 'check' }, UP_TO_DATE_MS);
 });
 
-autoUpdater.on('download-progress', p => {
-  if (mainWin && !mainWin.isDestroyed()) mainWin.setProgressBar(p.percent / 100);
-  if (popup && !popup.isDestroyed()) {
-    popup.webContents.executeJavaScript(
-      `var f=document.getElementById('fill'); if(f) f.style.width='${Math.round(p.percent)}%';`
-    ).catch(() => {});
-  }
-});
+autoUpdater.on('download-progress', p => setFill(p.percent));
 
 autoUpdater.on('update-downloaded', () => {
   downloading = false;

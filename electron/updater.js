@@ -12,7 +12,8 @@ const RELEASES = `https://github.com/${OWNER}/${REPO}/releases/latest`;
 const isMac = process.platform === 'darwin';
 
 // How long the result popups stay on screen (milliseconds)
-const UP_TO_DATE_MS = 10000;   // "Okie pa ag version..." popup
+const CHECKING_MS = 10000;     // "paabot kadali..." popup stays at least this long
+const UP_TO_DATE_MS = 5000;    // "Okie pa ag version..." popup
 const NOTICE_MS = 4000;        // offline / error popups
 const RESTART_MS = 5000;       // countdown before the app restarts to install the update
 const CHECK_FAILSAFE_MS = 60000; // if a check hangs this long, let the popup close so nobody is stuck
@@ -31,6 +32,7 @@ let beforeInstall = async () => {};
 let popup = null;
 let closeTimer = null;
 let checking = false;
+let checkStartedAt = 0;
 let downloading = false;
 let finished = false;      // a check completed (found / not found)
 let shownOffline = false;
@@ -332,7 +334,12 @@ autoUpdater.on('update-available', (info) => {
 
 autoUpdater.on('update-not-available', () => {
   finished = true;
-  show({ title: 'Okie pa ag version. Updated pa ne. Padajun gamit', icon: 'check' }, UP_TO_DATE_MS);
+  // keep the "checking" popup up for the full 10 seconds, then show the up-to-date message for 5
+  const wait = Math.max(0, CHECKING_MS - (Date.now() - checkStartedAt));
+  clearTimeout(closeTimer);
+  closeTimer = setTimeout(() => {
+    show({ title: 'Okie pa ag version. Updated pa ne. Padajun gamit', icon: 'check' }, UP_TO_DATE_MS);
+  }, wait);
 });
 
 autoUpdater.on('download-progress', p => setFill(p.percent));
@@ -379,6 +386,7 @@ async function check() {
     return;
   }
   checking = true;
+  checkStartedAt = Date.now();
   show({ title: 'paabot kadali....mangita tag update...', spinner: true });
   // safety net: if the check hangs, unlock and close the popup so the student is never stuck
   const failsafe = setTimeout(closePopup, CHECK_FAILSAFE_MS);

@@ -409,9 +409,11 @@
   th { padding: 11px 12px; text-align: left; font-size: .67rem; font-weight: 700; color: rgba(255,255,255,.7); text-transform: uppercase; letter-spacing: .7px; white-space: nowrap; }
   th:first-child { border-radius: 12px 0 0 0; }
   th:last-child  { border-radius: 0 12px 0 0; }
+  thead tr + tr th { border-radius: 0; }   /* 2nd header row (option letters) has no rounded corners */
   tbody tr { border-bottom: 1px solid var(--border); transition: background .12s; }
   tbody tr:last-child { border-bottom: none; }
   tbody tr:hover td { background: #f8faff; }
+  tbody tr.ia-alt td { background: #f8fafc; }
   td { padding: 9px 12px; vertical-align: middle; color: #334155; }
   td:first-child { font-weight: 700; color: var(--gray); font-family: var(--mono); font-size: .75rem; }
 
@@ -642,6 +644,7 @@
   @media print {
     @page { size: A4 portrait; margin: 0; }
     html, body { width: 210mm; height: 297mm; }
+    html, body { background: #fff !important; background-image: none !important; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     body > *:not(#print-analysis-frame) { display: none !important; }
     #print-analysis-frame { display: block !important; position: static !important; }
@@ -652,6 +655,7 @@
          so the sheet always fits a single A4 portrait page no matter how
          many item rows are in the table. */
     }
+    #print-analysis-frame tbody { break-inside: avoid; page-break-inside: avoid; }
   }
   #print-analysis-frame {
     display: none;
@@ -681,7 +685,7 @@
     background: #0c1f3d !important; color: #fff;
   }
   #print-analysis-frame th {
-    padding: 3px 4px; text-align: center; font-size: 6pt;
+    white-space: normal; padding: 3px 2px; text-align: center; font-size: 6pt;
     font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
     line-height: 1.3;
   }
@@ -700,6 +704,8 @@
   #print-analysis-frame .tag-mastered      { background: #d1fae5 !important; color: #065f46; }
   #print-analysis-frame .tag-leastmastered { background: #fef3c7 !important; color: #92400e; }
   #print-analysis-frame .tag-notmastered   { background: #fee2e2 !important; color: #991b1b; }
+  #print-analysis-frame .ia-table tr:nth-child(even) td { background: transparent !important; }
+  #print-analysis-frame .ia-table tr.ia-alt td { background: #f8fafc !important; }
   #print-analysis-frame .tag-exc  { color: #059669; font-weight: 700; }
   #print-analysis-frame .tag-good { color: #0284c7; font-weight: 700; }
   #print-analysis-frame .tag-fair { color: #d97706; font-weight: 700; }
@@ -1458,16 +1464,16 @@ function buildPanelHTML(secKey) {
             <div class="empty-state" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;border:none;padding:0"><span style="font-size:.8rem">No data yet</span></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:.65rem;color:var(--gray-light);margin:4px 0 12px;font-family:var(--mono)">
-            <span>Q1</span><span>Q40</span>
+            <span>Q1</span><span id="diff-last-${id}">Q40</span>
           </div>
           <div class="legend-row">
-            <span class="legend-item"><span class="legend-dot" style="background:#059669"></span>Easy ≥70%</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#d97706"></span>Average 40–69%</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#dc2626"></span>Difficult &lt;40%</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#059669"></span>Very Easy ≥0.70</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#d97706"></span>Average / Acceptable 0.30–0.69</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#dc2626"></span>Very Difficult &lt;0.30</span>
           </div>
           <div id="item-analysis-table-${id}" style="display:none;margin-top:14px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-              <span style="font-size:.78rem;font-weight:700;color:var(--navy)">Item Analysis / Assessment</span>
+              <span style="font-size:.78rem;font-weight:700;color:var(--navy)">Item Analysis Worksheet</span>
               <div style="display:flex;gap:6px">
                 <button class="btn btn-sm btn-outline" onclick="exportAnalysisDocx('${secKey}')" title="Download this Item Analysis as a Word document (A4 portrait)">⬇ Word</button>
                 <button class="btn btn-sm btn-outline" onclick="exportAnalysisForTOS('${secKey}')">⬇ Export for TOS</button>
@@ -1505,18 +1511,11 @@ function buildPanelHTML(secKey) {
 
             <div class="table-wrap">
               <table style="font-size:.76rem">
-                <thead><tr>
-                  <th style="width:44px;text-align:center">Item<br>no.</th>
-                  <th style="text-align:left">Learning Competencies</th>
-                  <th style="text-align:center">Frequency<br>of error</th>
-                  <th style="text-align:center">%</th>
-                  <th style="text-align:center">No. of correct<br>Responses</th>
-                  <th style="text-align:center">%</th>
-                  <th style="text-align:center">Remarks</th>
-                </tr></thead>
+                <thead id="analysis-thead-${id}"></thead>
                 <tbody id="analysis-tbody-${id}"></tbody>
               </table>
             </div>
+            <div id="analysis-summary-${id}" style="margin-top:10px;font-size:.72rem;color:var(--navy);line-height:1.5"></div>
           </div>
         </div>
       </div>
@@ -1913,57 +1912,103 @@ function renderPanel(secKey, subs, stats) {
   }
 }
 
-// Mark correctness into `arr` (indexed by canonical item number, 0-based)
-// using a submission's questionMap, which records each item's true item
-// number ("num") regardless of the shuffled order it was presented in.
-// `answers[i]` is presentation-order, not item order, so indexing into it
-// directly mixes up which canonical item is being counted whenever
-// questions are shuffled per student — questionMap is the reliable source.
-function markCorrectByItem(s, arr) {
-  if (Array.isArray(s.questionMap) && s.questionMap.length) {
-    s.questionMap.forEach(q => {
-      const idx = q.num - 1;
-      if (idx >= 0 && idx < arr.length && q.isCorrect === true) arr[idx]++;
-    });
-  } else {
-    // Fallback for older records saved without a questionMap
-    (s.answers || []).forEach((a, i) => { if (i < arr.length && (a === true || a === 1)) arr[i]++; });
-  }
+// ── Item analysis — DepEd "Automated Item Analysis" worksheet ──────────────────
+// Upper (U) / Lower (L) groups = the top / bottom 27% of the class by score.
+//   Difficulty Index (DI)    = (U correct + L correct) / (2 × group size)   [Gay, 1985]
+//   Discrimination Index (D) = (U correct − L correct) / group size         [Ebel, 1979]
+// DI: ≥ 0.70 Very Easy · 0.30–0.69 Average or Acceptable · < 0.30 Very Difficult
+// D:  ≥ 0.40 Accept · 0.20–0.39 Revise · < 0.20 Reject
+// Mirrors calculateStats() in server.js — keep the two in sync.
+const IA_LETTERS = ["A", "B", "C", "D", "E", "F"];
+
+function iaDifficultyRemark(di) {
+  if (di >= 0.7) return "Very Easy";
+  if (di >= 0.3) return "Average or Acceptable Difficulty";
+  return "Very Difficult";
+}
+function iaDiscriminationRemark(d) {
+  if (d >= 0.4) return "Very good item";
+  if (d >= 0.3) return "Reasonably good item but possibly subject to improvement";
+  if (d >= 0.2) return "Marginally good item usually needs and subject to improvement";
+  return "Poor item to be rejected";
+}
+function iaDecision(d) {
+  if (d >= 0.4) return "Accept";
+  if (d >= 0.2) return "Revise";
+  return "Reject";
 }
 
+// Per-item analysis for a set of submissions (one section / exam, or "All").
+// Uses each submission's canonical-order itemCorrect[] and itemChoices[] from the
+// server — never the presentation-order answers[], which is shuffled per student.
 function computeSectionStats(subs, globalStats) {
-  // Compute per-section difficulty from subs' per-question answers
-  if (!subs.length || !globalStats) return null;
-  // If submissions have answers/questionMap data, compute per-item; else return null
-  const hasAnswers = subs.some(s => (s.answers && s.answers.length) || (s.questionMap && s.questionMap.length));
-  if (!hasAnswers) return null;
+  if (!subs.length) return null;
+  const correctOf = s => Array.isArray(s.itemCorrect) ? s.itemCorrect
+    : (s.answers || []).map(a => a === true || a === 1);   // very old servers only
+  const size = Math.max(0, ...subs.map(s => correctOf(s).length)) || globalStats?.difficulty?.length || 0;
+  if (!size) return null;
 
-  const n       = subs.length;
-  // Size comes from the submissions themselves (each was graded against its own
-  // exam), not from one global item count.
-  const items   = Math.max(0, ...subs.map(s => Math.max((s.itemCorrect && s.itemCorrect.length) || 0, (s.answers && s.answers.length) || 0))) || globalStats?.difficulty?.length || 40;
-  const correct = Array(items).fill(0);
-  subs.forEach(s => markCorrectByItem(s, correct));
-  const difficulty = correct.map(c => Math.round(c / n * 100));
-
-  // Upper / lower groups (27%)
-  const k27   = Math.max(1, Math.round(n * 0.27));
-  const sorted = subs.slice().sort((a,b) => b.percentage - a.percentage);
-  const upper  = sorted.slice(0, k27);
-  const lower  = sorted.slice(-k27);
-  const upperGroup = Array(items).fill(0);
-  const lowerGroup = Array(items).fill(0);
-  upper.forEach(s => markCorrectByItem(s, upperGroup));
-  lower.forEach(s => markCorrectByItem(s, lowerGroup));
-
-  const overallDI = difficulty.length ? Math.round(difficulty.reduce((a,b)=>a+b,0)/difficulty.length) : 0;
-
-  // Learning-competency labels for THIS exam (all subs share one key in a per-section view)
+  // Exam info (answer key, option count, competencies) — only meaningful when every
+  // submission took the same exam.
   const keys = [...new Set(subs.map(s => s.gradeSection))];
-  const examInfo = keys.length === 1 && currentState && currentState.exams ? currentState.exams[keys[0]] : null;
+  const exams = (currentState && currentState.exams) || {};
+  const examInfo = keys.length === 1 ? exams[keys[0]] : null;
+  const answerKey = examInfo?.answerKey || [];
+  const itemTypes = examInfo?.itemTypes || [];
   const topics = examInfo ? examInfo.itemTopics : null;
+  const optionCount = Math.min(IA_LETTERS.length,
+    Math.max(4, ...keys.map(k => exams[k]?.optionCount || 4)));
 
-  return { difficulty, correctCounts: correct, upperGroup, lowerGroup, groupSize: k27, totalStudents: n, overallDifficultyIndex: overallDI, topics };
+  const n = subs.length;
+  const rows = subs.map(s => ({
+    correct: correctOf(s),
+    choice:  Array.isArray(s.itemChoices) ? s.itemChoices : [],
+    pct:     Number(s.percentage) || 0,
+  }));
+
+  // Total correct per item across everyone (kept for the TOS export)
+  const correct = new Array(size).fill(0);
+  rows.forEach(r => r.correct.forEach((c, i) => { if (c && i < size) correct[i]++; }));
+
+  const k27 = Math.max(1, Math.round(n * 0.27));
+  const sorted = rows.slice().sort((a, b) => b.pct - a.pct);
+  const upperRows = sorted.slice(0, k27);
+  const lowerRows = sorted.slice(n - k27);
+
+  const tally = group => {
+    const right = new Array(size).fill(0);
+    const opts  = Array.from({ length: size }, () => new Array(optionCount).fill(0));
+    group.forEach(r => {
+      for (let i = 0; i < size; i++) {
+        if (r.correct[i]) right[i]++;
+        const ch = r.choice[i];
+        if (ch >= 0 && ch < optionCount) opts[i][ch]++;
+      }
+    });
+    return { right, opts };
+  };
+  const U = tally(upperRows);
+  const L = tally(lowerRows);
+
+  const difficultyIndex = [], discriminationIndex = [];
+  for (let i = 0; i < size; i++) {
+    difficultyIndex.push((U.right[i] + L.right[i]) / (2 * k27));
+    discriminationIndex.push((U.right[i] - L.right[i]) / k27);
+  }
+  const difficulty = difficultyIndex.map(v => Number((v * 100).toFixed(1)));   // % — drives the chart
+  const overallDifficultyIndex = Number((difficulty.reduce((a, b) => a + b, 0) / size).toFixed(1));
+
+  return {
+    difficulty, overallDifficultyIndex,
+    upperGroup: U.right, lowerGroup: L.right, correctCounts: correct,
+    upperOptions: U.opts, lowerOptions: L.opts,
+    difficultyIndex, discriminationIndex,
+    difficultyRemarks:     difficultyIndex.map(iaDifficultyRemark),
+    discriminationRemarks: discriminationIndex.map(iaDiscriminationRemark),
+    decisions:             discriminationIndex.map(iaDecision),
+    answerKey, itemTypes, optionCount,
+    groupSize: k27, totalStudents: n, topics,
+  };
 }
 
 // ── Sessions ───────────────────────────────────────────────────────────────────
@@ -2050,6 +2095,7 @@ function renderTable(id, subs, showSection) {
 }
 
 // ── Diff Chart ─────────────────────────────────────────────────────────────────
+// Bar height = Difficulty Index (U+L)/(2×group size) as a %, coloured by the worksheet's bands.
 function renderDiffChart(id, stats) {
   const chart = document.getElementById(`diff-chart-${id}`);
   if (!chart) return;
@@ -2057,10 +2103,13 @@ function renderDiffChart(id, stats) {
   const d = stats.difficulty;
   const odi = document.getElementById(`odi-badge-${id}`);
   if (odi) odi.textContent = `ODI: ${stats.overallDifficultyIndex}%`;
+  const last = document.getElementById(`diff-last-${id}`);
+  if (last) last.textContent = `Q${d.length}`;
   chart.innerHTML = d.map((v,i) => {
     const h = Math.max(4, v);
-    const c = v >= 70 ? "#059669" : v >= 40 ? "#d97706" : "#dc2626";
-    return `<div class="diff-bar" style="height:${h}%;background:${c};opacity:.85" data-tip="Q${i+1}: ${v}%"></div>`;
+    const c = v >= 70 ? "#059669" : v >= 30 ? "#d97706" : "#dc2626";
+    const di = stats.difficultyIndex ? stats.difficultyIndex[i].toFixed(2) : (v / 100).toFixed(2);
+    return `<div class="diff-bar" style="height:${h}%;background:${c};opacity:.85" data-tip="Q${i+1}: DI ${di}"></div>`;
   }).join("");
 }
 
@@ -2175,68 +2224,147 @@ function hideAnalysis(secKey) {
   document.getElementById(`btn-show-analysis-${id}`).style.display   = "inline-flex";
 }
 
-// Builds the per-item rows shared by the on-screen table, the print view,
-// and the Excel export, in the DepEd Item Analysis/Assessment format:
-// Item no. | Learning Competencies | Frequency of error | % | No. of correct | % | Remarks
-// Remarks thresholds mirror the DepEd template's formula: Mastered ≥75%,
-// Least Mastered 51–74%, Not Mastered ≤50% (based on % correct).
-function buildDepEdRows(stats) {
+// Builds the per-item rows shared by the on-screen table, the print view, and the
+// Word / Excel exports — one entry per item in the DepEd Automated Item Analysis
+// worksheet format (each item has an Upper (U) and a Lower (L) group line).
+function buildItemAnalysisRows(stats) {
   if (!stats?.difficulty?.length) return [];
-  const n       = stats.totalStudents ?? 0;
-  const correct = stats.correctCounts ?? [];
-  const topics  = Array.isArray(stats.topics) ? stats.topics
+  const topics = Array.isArray(stats.topics) ? stats.topics
     : (currentState && Array.isArray(currentState.itemTopics)) ? currentState.itemTopics : [];
-
+  const oc = stats.optionCount || 4;
   return stats.difficulty.map((_, i) => {
-    const b = correct[i] ?? 0;
-    const errorCount = n > 0 ? n - b : 0;
-    const pctError   = n > 0 ? Math.round((errorCount / n) * 1000) / 10 : null;
-    const pctCorrect = n > 0 ? Math.round((b / n) * 1000) / 10 : null;
-    let remark = "—";
-    if (n > 0) {
-      if      (pctCorrect >= 75) remark = "Mastered";
-      else if (pctCorrect >= 51) remark = "Least Mastered";
-      else                       remark = "Not Mastered";
-    }
+    const di = stats.difficultyIndex[i];
+    const d  = stats.discriminationIndex[i];
     return {
       item: i + 1,
-      skill: topics[i] || "General",
-      errorCount,
-      pctError,
-      correctCount: b,
-      pctCorrect,
-      remark,
+      answer: stats.answerKey?.[i] || "—",
+      special: !!stats.itemTypes?.[i] && stats.itemTypes[i] !== "mc",   // identification / matching: A=correct/match, B=wrong/not match
+      topic: topics[i] || "General",
+      upperOpts: (stats.upperOptions?.[i] || []).slice(0, oc),
+      lowerOpts: (stats.lowerOptions?.[i] || []).slice(0, oc),
+      upperCorrect: stats.upperGroup[i],
+      lowerCorrect: stats.lowerGroup[i],
+      groupSize: stats.groupSize,
+      di, d,
+      diRemark: stats.difficultyRemarks[i],
+      dRemark:  stats.discriminationRemarks[i],
+      decision: stats.decisions[i],
     };
   });
 }
 
-function renderAnalysisTable(id, stats) {
-  const tbody = document.getElementById(`analysis-tbody-${id}`);
-  if (!tbody) return;
-  const rows = buildDepEdRows(stats);
-  if (!rows.length) { tbody.innerHTML = ""; return; }
+// Accept / Revise / Reject totals, plus the competencies behind REJECTED items
+// (the guidelines: rejected items are the basis for least-learned competencies).
+function summarizeItemAnalysis(rows) {
+  const out = { accept: 0, revise: 0, reject: 0, leastLearned: [] };
+  const byTopic = new Map();
+  rows.forEach(r => {
+    if (r.decision === "Accept") out.accept++;
+    else if (r.decision === "Revise") out.revise++;
+    else { out.reject++; if (!byTopic.has(r.topic)) byTopic.set(r.topic, []); byTopic.get(r.topic).push(r.item); }
+  });
+  byTopic.forEach((items, topic) => out.leastLearned.push({ topic, items }));
+  return out;
+}
+function iaLeastLearnedText(sum) {
+  return sum.leastLearned.map(x => `${x.items.length > 1 ? "Items" : "Item"} ${x.items.join(", ")} — ${x.topic}`).join("; ");
+}
 
-  tbody.innerHTML = rows.map(r => {
-    let remColor, remBg;
-    if      (r.remark === "Mastered")       { remColor = "var(--green)"; remBg = "var(--green-bg)"; }
-    else if (r.remark === "Least Mastered") { remColor = "var(--amber)"; remBg = "var(--amber-bg)"; }
-    else if (r.remark === "Not Mastered")   { remColor = "var(--red)";   remBg = "var(--red-bg)"; }
-    else                                    { remColor = "var(--gray)";  remBg = "#f1f5f9"; }
+const IA_SPECIAL_NOTE = "* Identification: A = correct, B = wrong. Matching: A = match, B = not match.";
+const iaHasSpecial = rows => rows.some(r => r.special);
+const IA_RANGE_NOTE = "Difficulty Index: 0.70 and above Very Easy · 0.30–0.70 Average or Acceptable · 0.29 and below Very Difficult.   Discrimination Index: 0.40 and above Accept · 0.20–0.39 Revise · 0.19 and below Reject.";
 
-    const remCell = r.remark === "—"
-      ? `<span style="color:var(--gray-light)">—</span>`
-      : `<span style="font-size:.68rem;padding:2px 8px;border-radius:99px;font-weight:700;background:${remBg};color:${remColor}">${r.remark}</span>`;
+// ── Table markup shared by screen + print ──────────────────────────────────────
+const IA_TONES = {
+  good: { c: "var(--green)", bg: "var(--green-bg)", cls: "tag-mastered" },
+  mid:  { c: "var(--amber)", bg: "var(--amber-bg)", cls: "tag-leastmastered" },
+  bad:  { c: "var(--red)",   bg: "var(--red-bg)",   cls: "tag-notmastered" },
+};
+const iaDiTone  = remark => remark === "Very Easy" ? "good" : remark === "Very Difficult" ? "bad" : "mid";
+const iaDecTone = dec => dec === "Accept" ? "good" : dec === "Revise" ? "mid" : "bad";
+function iaChip(text, tone, forPrint) {
+  const t = IA_TONES[tone];
+  return forPrint
+    ? `<span class="tag ${t.cls}">${text}</span>`
+    : `<span style="font-size:.68rem;padding:2px 8px;border-radius:99px;font-weight:700;background:${t.bg};color:${t.c};white-space:nowrap">${text}</span>`;
+}
 
-    return `<tr>
-      <td style="text-align:center;font-weight:800;font-family:var(--mono)">${r.item}</td>
-      <td style="text-align:left">${r.skill}</td>
-      <td style="text-align:center;font-family:var(--mono);font-weight:600">${r.errorCount}</td>
-      <td style="text-align:center;font-family:var(--mono)">${r.pctError !== null ? r.pctError + "%" : "—"}</td>
-      <td style="text-align:center;font-family:var(--mono);font-weight:600">${r.correctCount}</td>
-      <td style="text-align:center;font-family:var(--mono)">${r.pctCorrect !== null ? r.pctCorrect + "%" : "—"}</td>
-      <td style="text-align:center">${remCell}</td>
+function iaHeadHtml(letters) {
+  const c = `text-align:center`;
+  return `<tr>
+      <th rowspan="2" style="${c}">Item<br>no.</th>
+      <th rowspan="2" style="${c}">Answer</th>
+      <th rowspan="2" style="${c}">Group</th>
+      <th rowspan="2" style="${c}">Group<br>size</th>
+      <th colspan="${letters.length}" style="${c}">Options</th>
+      <th rowspan="2" style="${c}">No. of correct<br>responses</th>
+      <th rowspan="2" style="${c}">Difficulty<br>index</th>
+      <th rowspan="2" style="${c}">Discrimination<br>index</th>
+      <th rowspan="2" style="${c}">Remarks</th>
+      <th rowspan="2" style="${c}">Decision</th>
+    </tr><tr>${letters.map(l => `<th style="${c}">${l}</th>`).join("")}</tr>`;
+}
+
+// Two <tr>s (Upper + Lower group) for one item, like the worksheet.
+function iaItemRowsHtml(r, letters, alt, forPrint) {
+  const mono = `font-family:var(--mono)`;
+  const ctr  = `text-align:center`;
+  const sep  = `border-bottom:2px solid var(--border)`;
+  const altCls = alt ? ` class="ia-alt"` : "";
+  const optCell = (counts, i, last) => {
+    const isKey = letters[i] === r.answer;
+    return `<td style="${ctr};${mono};${isKey ? "font-weight:800;color:var(--green)" : ""}${last ? ";" + sep : ""}">${counts[i] ?? 0}</td>`;
+  };
+  const dColor = r.d < 0 ? "var(--red)" : "inherit";
+  const dRemarkStyle = `font-size:${forPrint ? "5.8pt" : ".7rem"};${r.decision === "Reject" ? "color:var(--red);font-weight:700" : "color:var(--gray)"}`;
+  const upper = `<tr${altCls}>
+      <td rowspan="2" style="${ctr};font-weight:800;${mono};${sep}">${r.item}</td>
+      <td rowspan="2" style="${ctr};font-weight:800;${mono};${sep}">${r.answer}${r.special ? "*" : ""}</td>
+      <td style="${ctr};font-weight:700">U</td>
+      <td style="${ctr};${mono}">${r.groupSize}</td>
+      ${letters.map((_, i) => optCell(r.upperOpts, i, false)).join("")}
+      <td style="${ctr};${mono};font-weight:600">${r.upperCorrect}</td>
+      <td rowspan="2" style="${ctr};${mono};font-weight:700;${sep}">${r.di.toFixed(2)}</td>
+      <td rowspan="2" style="${ctr};${mono};font-weight:700;color:${dColor};${sep}">${r.d.toFixed(2)}</td>
+      <td style="${ctr}">${iaChip(r.diRemark, iaDiTone(r.diRemark), forPrint)}</td>
+      <td rowspan="2" style="${ctr};${sep}">${iaChip(r.decision, iaDecTone(r.decision), forPrint)}</td>
     </tr>`;
-  }).join("");
+  const lower = `<tr${altCls}>
+      <td style="${ctr};font-weight:700;${sep}">L</td>
+      <td style="${ctr};${mono};${sep}">${r.groupSize}</td>
+      ${letters.map((_, i) => optCell(r.lowerOpts, i, true)).join("")}
+      <td style="${ctr};${mono};font-weight:600;${sep}">${r.lowerCorrect}</td>
+      <td style="${ctr};${dRemarkStyle};${sep}">${r.dRemark}</td>
+    </tr>`;
+  return upper + lower;
+}
+
+function iaSummaryHtml(rows) {
+  const sum = summarizeItemAnalysis(rows);
+  const ll = sum.leastLearned.length
+    ? `<div style="margin-top:6px"><b style="color:var(--red)">Least learned competencies</b> (rejected items): ${escapeAttr(iaLeastLearnedText(sum))}</div>`
+    : "";
+  return `<div><b>No. of items:</b> ${rows.length} &nbsp;·&nbsp; <b style="color:var(--green)">Accept ${sum.accept}</b> &nbsp;·&nbsp; <b style="color:var(--amber)">Revise ${sum.revise}</b> &nbsp;·&nbsp; <b style="color:var(--red)">Reject ${sum.reject}</b></div>${ll}
+    ${iaHasSpecial(rows) ? `<div style="margin-top:6px;color:var(--gray)">${IA_SPECIAL_NOTE}</div>` : ""}
+    <div style="margin-top:6px;color:var(--gray-light)">${IA_RANGE_NOTE}</div>`;
+}
+
+function renderAnalysisTable(id, stats) {
+  const tbody   = document.getElementById(`analysis-tbody-${id}`);
+  const thead   = document.getElementById(`analysis-thead-${id}`);
+  const summary = document.getElementById(`analysis-summary-${id}`);
+  if (!tbody) return;
+  const rows = buildItemAnalysisRows(stats);
+  if (!rows.length) {
+    tbody.innerHTML = "";
+    if (thead) thead.innerHTML = "";
+    if (summary) summary.innerHTML = "";
+    return;
+  }
+  const letters = IA_LETTERS.slice(0, stats.optionCount || 4);
+  if (thead) thead.innerHTML = iaHeadHtml(letters);
+  tbody.innerHTML = rows.map((r, i) => iaItemRowsHtml(r, letters, i % 2 === 1, false)).join("");
+  if (summary) summary.innerHTML = iaSummaryHtml(rows);
 }
 
 // ── Leaderboard ────────────────────────────────────────────────────────────────
@@ -4996,72 +5124,74 @@ function exportAnalysisForTOS(secKey) {
   showToast("green", "⬇️", "Exported", "Import this file in the Table of Specification's Item Analysis tab.");
 }
 
-// ── Print Item Analysis (DepEd Item Analysis/Assessment format) ────────────────
+// ── Print Item Analysis (DepEd Automated Item Analysis worksheet) ──────────────
+// Scaled down (never up) so the whole worksheet always fits ONE A4 portrait page,
+// however many items it has — see fitPrintFrameToA4().
 function printAnalysis(secKey) {
-  const id = secKey.replace(/[ .]/g, "_");
-  const tbody = document.getElementById(`analysis-tbody-${id}`);
-  if (!tbody || !tbody.innerHTML.trim()) {
+  if (!currentState) {
+    showToast("amber", "⚠️", "No data", "No quiz data loaded yet.");
+    return;
+  }
+  const subs  = secKey === "ALL" ? currentState.submissions : (currentState.submissions||[]).filter(x=>x.gradeSection===secKey);
+  const stats = computeSectionStats(subs, currentState.stats);
+  const rows  = buildItemAnalysisRows(stats);
+  if (!rows.length) {
     showToast("amber", "⚠️", "No data", "Run the analysis first before printing.");
     return;
   }
 
   const h = getAnalysisHeaderValues(secKey);
+  const letters = IA_LETTERS.slice(0, stats.optionCount || 4);
+  const sum = summarizeItemAnalysis(rows);
+
+  // Column widths (% of the page): fixed columns + options, remarks takes the rest
+  const optW = 4.5;
+  const fixed = [5, 6, 5, 6];            // item, answer, group, group size
+  const tail  = [9, 8, 9.5];               // correct, DI, D
+  const decW = 8;
+  const remW = 100 - fixed.reduce((a, b) => a + b, 0) - letters.length * optW - tail.reduce((a, b) => a + b, 0) - decW;
+  const cols = [...fixed, ...letters.map(() => optW), ...tail, remW, decW];
+
   const frame = document.getElementById("print-analysis-frame");
   frame.innerHTML = `
     <div class="pa-wrap">
       <div class="pa-deped-header">
         <div>Republic of the Philippines</div>
         <div>Department of Education</div>
-        ${h.region ? `<div>${h.region}</div>` : ""}
-        ${h.division ? `<div>${h.division}</div>` : ""}
-        <div class="pa-title2">${h.school.toUpperCase()}</div>
-        <div class="pa-title2">ITEM ANALYSIS/ASSESSMENT</div>
+        ${h.region ? `<div>${escapeAttr(h.region)}</div>` : ""}
+        ${h.division ? `<div>${escapeAttr(h.division)}</div>` : ""}
+        <div class="pa-title2">${escapeAttr(h.school.toUpperCase())}</div>
+        <div class="pa-title2">ITEM ANALYSIS WORKSHEET</div>
       </div>
       <div class="pa-info-grid">
-        <div><b>Grade &amp; Section:</b> ${h.gradeSection}</div>
-        <div><b>No. of Students:</b> ${h.nStudents}</div>
-        <div><b>Exam Name:</b> ${h.examName || "—"}</div>
-        <div><b>Date:</b> ${h.date || "—"}</div>
+        <div><b>Grade &amp; Section:</b> ${escapeAttr(h.gradeSection)}</div>
+        <div><b>No. of Students:</b> ${escapeAttr(h.nStudents)}</div>
+        <div><b>Exam Name:</b> ${escapeAttr(h.examName || "—")}</div>
+        <div><b>Date:</b> ${escapeAttr(h.date || "—")}</div>
+        <div><b>Group Size (27%):</b> ${stats.groupSize}</div>
       </div>
-      <table>
-        <thead><tr>
-          <th style="width:8%">Item<br>no.</th>
-          <th style="width:32%;text-align:left">Learning Competencies</th>
-          <th style="width:14%">Frequency<br>of error</th>
-          <th style="width:8%">%</th>
-          <th style="width:16%">No. of correct<br>Responses</th>
-          <th style="width:8%">%</th>
-          <th style="width:14%">Remarks</th>
-        </tr></thead>
-        <tbody>${tbody.innerHTML}</tbody>
+      <table class="ia-table">
+        <colgroup>${cols.map(w => `<col style="width:${w}%">`).join("")}</colgroup>
+        <thead>${iaHeadHtml(letters)}</thead>
+        ${rows.map((r, i) => `<tbody>${iaItemRowsHtml(r, letters, i % 2 === 1, true)}</tbody>`).join("")}
       </table>
-      <div class="pa-footer">
-        <span>No. of Items: ${tbody.children.length}</span>
-        <span>Remarks: Not Mastered ≤50% · Least Mastered 51–74% · Mastered ≥75% (based on % correct)</span>
+      <div class="pa-footer" style="display:block">
+        <div>No. of Items: ${rows.length} · Accept ${sum.accept} · Revise ${sum.revise} · Reject ${sum.reject}</div>
+        ${sum.leastLearned.length ? `<div>Least learned competencies (rejected items): ${escapeAttr(iaLeastLearnedText(sum))}</div>` : ""}
+        ${iaHasSpecial(rows) ? `<div>${IA_SPECIAL_NOTE}</div>` : ""}
+        <div>${IA_RANGE_NOTE}</div>
       </div>
       <div class="pa-sign">
         <div class="pa-sign-block">
-          <div class="pa-sign-line">${h.teacher || "&nbsp;"}</div>
+          <div class="pa-sign-line">${escapeAttr(h.teacher) || "&nbsp;"}</div>
           <div>Teacher</div>
         </div>
       </div>
     </div>`;
 
-  // Normalize inline styles to print-friendly classes
-  frame.querySelectorAll("td span[style]").forEach(el => {
-    const style = el.getAttribute("style") || "";
-    if (style.includes("green-bg") || style.includes("d1fae5"))  el.className = "tag tag-mastered";
-    if (style.includes("amber-bg") || style.includes("fef3c7"))  el.className = "tag tag-leastmastered";
-    if (style.includes("red-bg")   || style.includes("fee2e2"))  el.className = "tag tag-notmastered";
-  });
-  // Left-align the Learning Competencies column's <td>s (the shared print CSS centers all <td>s)
-  frame.querySelectorAll("tbody tr").forEach(tr => {
-    if (tr.children[1]) tr.children[1].style.textAlign = "left";
-  });
-
   frame.style.display = "block";
+  fitPrintFrameToA4(frame.querySelector(".pa-wrap"));
   setTimeout(() => {
-    fitPrintFrameToA4(frame.querySelector(".pa-wrap"));
     window.print();
     frame.style.display = "none";
   }, 120);
@@ -5069,13 +5199,11 @@ function printAnalysis(secKey) {
 
 // Scales the Item Analysis sheet down (never up) so it always lands on a
 // single A4 portrait page, no matter how many rows the table has.
-// Note: the @page CSS rule fixes the printed *sheet size* to A4 portrait —
-// browsers/OS print dialogs still show their own default paper preset
-// (e.g. "US Letter") until the user picks A4 there, but the content itself
-// is laid out and scaled for A4 either way.
+// Note: @page fixes the sheet size to A4 portrait, but some print dialogs still
+// default to their own paper preset (e.g. "US Letter") until A4 is picked there.
 function fitPrintFrameToA4(wrap) {
   if (!wrap) return;
-  const MM_TO_PX = 96 / 25.4;   // standard CSS px-per-mm at 96dpi
+  const MM_TO_PX  = 96 / 25.4;   // CSS px per mm at 96dpi
   const PAGE_W_MM = 210;
   const PAGE_H_MM = 297;
   const SAFE_H_MM = PAGE_H_MM - 4; // small safety margin so nothing clips at the edge
@@ -5095,10 +5223,10 @@ function fitPrintFrameToA4(wrap) {
   wrap.style.width = `${PAGE_W_MM / scale}mm`;
 }
 
-// ── Export Item Analysis to Word (.docx) — same logic/format as the Submitted
-// Results Word download above: reuses the page's embedded school logo, lays
-// out on a single A4 portrait page, and mirrors exactly what's shown in the
-// on-screen Item Analysis / print / Excel exports (DepEd Item Analysis format).
+// ── Export Item Analysis to Word (.docx) — DepEd Automated Item Analysis worksheet
+// A4 portrait, reuses the page's embedded school logo, and mirrors the on-screen
+// table (U / L line per item, Difficulty & Discrimination index, Remarks, Decision).
+// Flows across pages as needed; the header rows repeat on each page.
 async function exportAnalysisDocx(secKey) {
   if (!currentState) {
     showToast("amber", "⚠️", "No data", "No quiz data loaded yet.");
@@ -5106,7 +5234,7 @@ async function exportAnalysisDocx(secKey) {
   }
   const subs  = secKey === "ALL" ? currentState.submissions : (currentState.submissions||[]).filter(x=>x.gradeSection===secKey);
   const stats = computeSectionStats(subs, currentState.stats);
-  const rows  = buildDepEdRows(stats);
+  const rows  = buildItemAnalysisRows(stats);
   if (!rows.length) {
     showToast("amber", "⚠️", "No data", "Run the analysis first before exporting.");
     return;
@@ -5116,12 +5244,11 @@ async function exportAnalysisDocx(secKey) {
   const h = getAnalysisHeaderValues(secKey);
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-    WidthType, AlignmentType, VerticalAlign, convertMillimetersToTwip, PageOrientation,
+    WidthType, AlignmentType, VerticalAlign, VerticalMergeType, convertMillimetersToTwip, PageOrientation,
     ImageRun,
   } = docx;
 
-  // Reuse the school logo already embedded in the page header (data: URL) —
-  // same approach as the Submitted Results Word export.
+  // Reuse the school logo already embedded in the page header (data: URL).
   const logoImgEl = document.querySelector(".school-logo-img");
   let logoBytes = null;
   if (logoImgEl?.src?.startsWith("data:image")) {
@@ -5133,72 +5260,106 @@ async function exportAnalysisDocx(secKey) {
     } catch { logoBytes = null; }
   }
 
-  // Column widths (mm) sized so the table always fits the A4 content width
-  // (210mm page − 15mm margins each side = 180mm), matching the print sheet's
-  // column proportions (8/32/14/8/16/8/14%).
-  const headerCells  = ["Item\nno.", "Learning Competencies", "Frequency\nof error", "%", "No. of correct\nResponses", "%", "Remarks"];
-  const colWidthsMM  = [14.4, 57.6, 25.2, 14.4, 28.8, 14.4, 25.2];
+  const letters = IA_LETTERS.slice(0, stats.optionCount || 4);
+  const oc = letters.length;
 
-  const mkCell = (text, i, opts = {}) => new TableCell({
-    width: { size: convertMillimetersToTwip(colWidthsMM[i]), type: WidthType.DXA },
-    shading: opts.fill ? { fill: opts.fill } : undefined,
-    verticalAlign: VerticalAlign.CENTER,
-    margins: { top: 60, bottom: 60, left: 80, right: 80 },
-    children: String(text).split("\n").map(line => new Paragraph({
-      alignment: i === 1 ? AlignmentType.LEFT : AlignmentType.CENTER,
-      children: [new TextRun({ text: line, bold: !!opts.bold, color: opts.color, size: 18 })],
-    })),
-  });
+  // Column widths (mm) — total 180 = A4 210mm − 15mm margins each side.
+  const optW = 8.5;
+  const wItem = 10, wAns = 11, wGrp = 10, wSize = 12, wCorrect = 14, wDI = 14, wD = 20, wDec = 15;
+  const wRem = 180 - (wItem + wAns + wGrp + wSize + oc * optW + wCorrect + wDI + wD + wDec);
+  const colW = [wItem, wAns, wGrp, wSize, ...letters.map(() => optW), wCorrect, wDI, wD, wRem, wDec];
+  const tw = mm => convertMillimetersToTwip(mm);
 
-  const headerRow = new TableRow({
-    tableHeader: true,
-    children: headerCells.map((text, i) => mkCell(text, i, { bold: true, color: "FFFFFF", fill: "0C1F3D" })),
-  });
+  const FS = 15;   // 7.5pt — keeps two lines per item compact
+  const tones = {
+    good: { fill: "D1FAE5", color: "065F46" },
+    mid:  { fill: "FEF3C7", color: "92400E" },
+    bad:  { fill: "FEE2E2", color: "991B1B" },
+  };
 
-  const remarkColors = { "Mastered": "059669", "Least Mastered": "d97706", "Not Mastered": "dc2626" };
-
-  const bodyRows = rows.map((r, idx) => {
-    const cells = [
-      r.item,
-      r.skill,
-      r.errorCount,
-      r.pctError !== null ? `${r.pctError}%` : "—",
-      r.correctCount,
-      r.pctCorrect !== null ? `${r.pctCorrect}%` : "—",
-      r.remark,
-    ];
-    return new TableRow({
-      children: cells.map((text, i) => mkCell(text, i, {
-        fill: idx % 2 === 1 ? "F1F5F9" : undefined,
-        bold: i === 6 && remarkColors[r.remark] ? true : undefined,
-        color: i === 6 ? remarkColors[r.remark] : undefined,
+  // colIdx = first column index the cell occupies; span = columns it covers.
+  const mk = (text, colIdx, o = {}) => {
+    const span = o.span || 1;
+    const width = colW.slice(colIdx, colIdx + span).reduce((a, b) => a + b, 0);
+    return new TableCell({
+      width: { size: tw(width), type: WidthType.DXA },
+      columnSpan: span > 1 ? span : undefined,
+      verticalMerge: o.vm,
+      shading: o.fill ? { fill: o.fill } : undefined,
+      verticalAlign: VerticalAlign.CENTER,
+      margins: { top: 30, bottom: 30, left: 50, right: 50 },
+      children: String(text).split("\n").map(line => new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: line, bold: !!o.bold, color: o.color, size: o.size || FS })],
       })),
     });
+  };
+
+  // Two header rows: OPTIONS spans the option letters; everything else merges down.
+  const HF = { bold: true, color: "FFFFFF", fill: "0C1F3D", size: 14 };
+  const R = VerticalMergeType.RESTART, C = VerticalMergeType.CONTINUE;
+  const optStart = 4, correctIdx = 4 + oc;
+  const headRow1 = new TableRow({ tableHeader: true, children: [
+    mk("Item\nno.", 0, { ...HF, vm: R }), mk("Answer", 1, { ...HF, vm: R }), mk("Group", 2, { ...HF, vm: R }), mk("Group\nsize", 3, { ...HF, vm: R }),
+    mk("Options", optStart, { ...HF, span: oc }),
+    mk("No. of correct\nresponses", correctIdx, { ...HF, vm: R }), mk("Difficulty\nindex", correctIdx + 1, { ...HF, vm: R }),
+    mk("Discrimination\nindex", correctIdx + 2, { ...HF, vm: R }), mk("Remarks", correctIdx + 3, { ...HF, vm: R }), mk("Decision", correctIdx + 4, { ...HF, vm: R }),
+  ]});
+  const headRow2 = new TableRow({ tableHeader: true, children: [
+    mk("", 0, { ...HF, vm: C }), mk("", 1, { ...HF, vm: C }), mk("", 2, { ...HF, vm: C }), mk("", 3, { ...HF, vm: C }),
+    ...letters.map((l, i) => mk(l, optStart + i, HF)),
+    mk("", correctIdx, { ...HF, vm: C }), mk("", correctIdx + 1, { ...HF, vm: C }), mk("", correctIdx + 2, { ...HF, vm: C }),
+    mk("", correctIdx + 3, { ...HF, vm: C }), mk("", correctIdx + 4, { ...HF, vm: C }),
+  ]});
+
+  const bodyRows = [];
+  rows.forEach((r, idx) => {
+    const fill = idx % 2 === 1 ? "F1F5F9" : undefined;
+    const diTone  = tones[iaDiTone(r.diRemark)];
+    const decTone = tones[iaDecTone(r.decision)];
+    const optCells = (counts) => letters.map((l, i) => mk(counts[i] ?? 0, optStart + i, { fill, bold: l === r.answer }));
+    const dColor = r.d < 0 ? "DC2626" : undefined;
+    bodyRows.push(new TableRow({ cantSplit: true, children: [
+      mk(r.item, 0, { fill, bold: true, vm: R }), mk(r.answer + (r.special ? "*" : ""), 1, { fill, bold: true, vm: R }),
+      mk("U", 2, { fill, bold: true }), mk(r.groupSize, 3, { fill }),
+      ...optCells(r.upperOpts),
+      mk(r.upperCorrect, correctIdx, { fill }),
+      mk(r.di.toFixed(2), correctIdx + 1, { fill, bold: true, vm: R }),
+      mk(r.d.toFixed(2), correctIdx + 2, { fill, bold: true, color: dColor, vm: R }),
+      mk(r.diRemark, correctIdx + 3, { fill: diTone.fill, color: diTone.color, bold: true }),
+      mk(r.decision, correctIdx + 4, { fill: decTone.fill, color: decTone.color, bold: true, vm: R }),
+    ]}));
+    bodyRows.push(new TableRow({ cantSplit: true, children: [
+      mk("", 0, { fill, vm: C }), mk("", 1, { fill, vm: C }),
+      mk("L", 2, { fill, bold: true }), mk(r.groupSize, 3, { fill }),
+      ...optCells(r.lowerOpts),
+      mk(r.lowerCorrect, correctIdx, { fill }),
+      mk("", correctIdx + 1, { fill, vm: C }), mk("", correctIdx + 2, { fill, vm: C }),
+      mk(r.dRemark, correctIdx + 3, { fill, color: r.decision === "Reject" ? "DC2626" : undefined, bold: r.decision === "Reject" }),
+      mk("", correctIdx + 4, { fill, vm: C }),
+    ]}));
   });
 
   const table = new Table({
-    width: { size: convertMillimetersToTwip(colWidthsMM.reduce((a, b) => a + b, 0)), type: WidthType.DXA },
-    rows: [headerRow, ...bodyRows],
+    width: { size: tw(180), type: WidthType.DXA },
+    columnWidths: colW.map(tw),
+    rows: [headRow1, headRow2, ...bodyRows],
   });
 
   const label = (typeof SECTION_LABELS !== "undefined" && SECTION_LABELS[secKey]) || secKey;
   const dateStr = new Date().toISOString().slice(0, 10);
+  const sum = summarizeItemAnalysis(rows);
+  const center = (text, o = {}) => new Paragraph({
+    alignment: AlignmentType.CENTER, spacing: o.spacing,
+    children: [new TextRun({ text, size: o.size || 18, bold: o.bold, color: o.color })],
+  });
 
   const doc = new Document({
     sections: [{
       properties: {
         page: {
-          size: {
-            width: convertMillimetersToTwip(210),
-            height: convertMillimetersToTwip(297),
-            orientation: PageOrientation.PORTRAIT,
-          },
-          margin: {
-            top: convertMillimetersToTwip(15),
-            bottom: convertMillimetersToTwip(15),
-            left: convertMillimetersToTwip(15),
-            right: convertMillimetersToTwip(15),
-          },
+          size: { width: tw(210), height: tw(297), orientation: PageOrientation.PORTRAIT },
+          margin: { top: tw(15), bottom: tw(15), left: tw(15), right: tw(15) },
         },
       },
       children: [
@@ -5206,33 +5367,15 @@ async function exportAnalysisDocx(secKey) {
           ? [new Paragraph({
               alignment: AlignmentType.CENTER,
               spacing: { after: 120 },
-              children: [new ImageRun({
-                data: logoBytes,
-                type: "jpg",
-                transformation: { width: 64, height: 64 },
-              })],
+              children: [new ImageRun({ data: logoBytes, type: "jpg", transformation: { width: 64, height: 64 } })],
             })]
           : []),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: "Republic of the Philippines", size: 18 })],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: "Department of Education", size: 18 })],
-        }),
-        ...(h.region   ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h.region, size: 18 })] })] : []),
-        ...(h.division ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h.division, size: 18 })] })] : []),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 100 },
-          children: [new TextRun({ text: (h.school || "School").toUpperCase(), bold: true, size: 26 })],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 200 },
-          children: [new TextRun({ text: "ITEM ANALYSIS/ASSESSMENT", bold: true, size: 22, color: "1E4976" })],
-        }),
+        center("Republic of the Philippines"),
+        center("Department of Education"),
+        ...(h.region   ? [center(h.region)]   : []),
+        ...(h.division ? [center(h.division)] : []),
+        center((h.school || "School").toUpperCase(), { bold: true, size: 26, spacing: { before: 100 } }),
+        center("ITEM ANALYSIS WORKSHEET", { bold: true, size: 22, color: "1E4976", spacing: { after: 200 } }),
         new Paragraph({
           spacing: { after: 60 },
           children: [
@@ -5240,6 +5383,8 @@ async function exportAnalysisDocx(secKey) {
             new TextRun({ text: h.gradeSection || label, size: 18 }),
             new TextRun({ text: "     No. of Students: ", bold: true, size: 18 }),
             new TextRun({ text: h.nStudents || String(stats.totalStudents ?? ""), size: 18 }),
+            new TextRun({ text: "     Group Size (27%): ", bold: true, size: 18 }),
+            new TextRun({ text: String(stats.groupSize), size: 18 }),
           ],
         }),
         new Paragraph({
@@ -5254,20 +5399,29 @@ async function exportAnalysisDocx(secKey) {
         table,
         new Paragraph({
           spacing: { before: 200, after: 60 },
-          children: [new TextRun({ text: `No. of Items: ${rows.length}`, size: 18 })],
+          children: [new TextRun({ text: `No. of Items: ${rows.length}  ·  Accept ${sum.accept}  ·  Revise ${sum.revise}  ·  Reject ${sum.reject}`, size: 18 })],
         }),
+        ...(sum.leastLearned.length ? [new Paragraph({
+          spacing: { after: 60 },
+          children: [
+            new TextRun({ text: "Least learned competencies (rejected items): ", bold: true, size: 16, color: "991B1B" }),
+            new TextRun({ text: iaLeastLearnedText(sum), size: 16 }),
+          ],
+        })] : []),
+        ...(iaHasSpecial(rows) ? [new Paragraph({
+          spacing: { after: 60 },
+          children: [new TextRun({ text: IA_SPECIAL_NOTE, size: 14, color: "6B7280" })],
+        })] : []),
         new Paragraph({
           spacing: { after: 240 },
-          children: [new TextRun({ text: "Remarks: Not Mastered ≤50% · Least Mastered 51–74% · Mastered ≥75% (based on % correct)", size: 16, italics: true, color: "6B7280" })],
+          children: [new TextRun({ text: IA_RANGE_NOTE, size: 14, italics: true, color: "6B7280" })],
         }),
         new Paragraph({
           spacing: { before: 300 },
           alignment: AlignmentType.LEFT,
-          children: [new TextRun({ text: h.teacher || "\u00A0", bold: true, size: 18 })],
+          children: [new TextRun({ text: h.teacher || " ", bold: true, size: 18 })],
         }),
-        new Paragraph({
-          children: [new TextRun({ text: "Teacher", size: 16 })],
-        }),
+        new Paragraph({ children: [new TextRun({ text: "Teacher", size: 16 })] }),
       ],
     }],
   });
@@ -5288,7 +5442,10 @@ async function exportAnalysisDocx(secKey) {
   }
 }
 
-// ── Export Item Analysis to .xlsx (matches the DepEd Item Analysis template) ───
+// ── Export Item Analysis to .xlsx — same layout as the DepEd Automated Item Analysis
+// worksheet: per item, an Upper (U) and Lower (L) line with option counts typed in,
+// and live formulas for No. of correct responses, Difficulty Index, Discrimination
+// Index, Remarks and Decision (so counts can still be corrected by hand in Excel).
 function exportAnalysisXLSX(secKey) {
   if (!currentState) {
     showToast("amber", "⚠️", "No data", "No quiz data loaded yet.");
@@ -5296,7 +5453,7 @@ function exportAnalysisXLSX(secKey) {
   }
   const subs  = secKey === "ALL" ? currentState.submissions : (currentState.submissions||[]).filter(x=>x.gradeSection===secKey);
   const stats = computeSectionStats(subs, currentState.stats);
-  const rows  = buildDepEdRows(stats);
+  const rows  = buildItemAnalysisRows(stats);
   if (!rows.length) {
     showToast("amber", "⚠️", "No data", "Run the analysis first before exporting.");
     return;
@@ -5307,56 +5464,90 @@ function exportAnalysisXLSX(secKey) {
   }
 
   const h = getAnalysisHeaderValues(secKey);
-  const aoa = [
-    ["Republic of the Philippines"],
-    ["Department of Education"],
-    [h.region || ""],
-    [h.division || ""],
-    [h.school],
-    ["ITEM ANALYSIS/ASSESSMENT"],
-    [null],
-    ["Grade & Section :", h.gradeSection, null, "No. of Students :", h.nStudents],
-    ["Exam Name:", h.examName || "", null, "Date :", h.date || ""],
-    ["Item no.", "Learning Competencies", "Frequency of error", "%", "No. of correct Responses", "%", "REMARKS"],
-    [null, null, null, null, null, "Not Mastered\n(≤50%)", "Least Mastered\n(51-74%)", "Mastered\n(75-100%)"],
-  ];
-  // Rebuild REMARKS as three sub-columns (G/H/I) like the source template,
-  // marking the applicable bracket with "/" for the item's actual result.
-  aoa[9]  = ["Item no.", "Learning Competencies", "Frequency of error", "%", "No. of correct Responses", "REMARKS", null, null];
-  aoa[10] = [null, null, null, null, null, "Not Mastered (≤50%)", "Least Mastered (51-74%)", "Mastered (75-100%)"];
+  const letters = IA_LETTERS.slice(0, stats.optionCount || 4);
+  const oc = letters.length;
+  // Column indexes (0-based): A item, B answer, C group, D group size, options…, correct, DI, D, remarks, decision
+  const cOpt0 = 4, cCorrect = 4 + oc, cDI = cCorrect + 1, cD = cCorrect + 2, cRem = cCorrect + 3, cDec = cCorrect + 4;
+  const L = c => XLSX.utils.encode_col(c);
+  const ws = {};
+  const put = (r, c, v, f) => {
+    if (v === null || v === undefined || v === "") { if (!f) return; }
+    const cell = { v, t: typeof v === "number" ? "n" : "s" };
+    if (f) cell.f = f;
+    ws[XLSX.utils.encode_cell({ r, c })] = cell;
+  };
+  const merges = [];
+  const lastCol = cDec;
 
-  rows.forEach(r => {
-    aoa.push([
-      r.item,
-      r.skill,
-      r.errorCount,
-      r.pctError !== null ? r.pctError + "%" : "",
-      r.correctCount,
-      r.remark === "Not Mastered"   ? "/" : "",
-      r.remark === "Least Mastered" ? "/" : "",
-      r.remark === "Mastered"       ? "/" : "",
-    ]);
+  // Header block
+  const head = ["Republic of the Philippines", "Department of Education", h.region || "", h.division || "", h.school, "ITEM ANALYSIS WORKSHEET"];
+  head.forEach((t, r) => { put(r, 0, t); merges.push({ s: { r, c: 0 }, e: { r, c: lastCol } }); });
+  put(7, 0, "Grade & Section:");  put(7, 2, h.gradeSection);  put(7, cCorrect, "No. of Students:");  put(7, cDI, Number(h.nStudents) || stats.totalStudents);
+  put(8, 0, "Exam Name:");        put(8, 2, h.examName || ""); put(8, cCorrect, "Date:");             put(8, cDI, h.date || "");
+  put(9, 0, "GROUP SIZE");        put(9, 2, stats.groupSize);
+  const GS = `$C$10`;   // group size cell
+
+  // Table header (two rows)
+  const hr = 11;
+  ["ITEM NO.", "ANSWER", "GROUP", "GROUP SIZE"].forEach((t, c) => put(hr, c, t));
+  put(hr, cOpt0, "OPTIONS"); merges.push({ s: { r: hr, c: cOpt0 }, e: { r: hr, c: cOpt0 + oc - 1 } });
+  letters.forEach((l, i) => put(hr + 1, cOpt0 + i, l));
+  put(hr, cCorrect, "NO. OF CORRECT RESPONSES"); put(hr, cDI, "DIFFICULTY INDEX"); put(hr, cD, "DISCRIMINATION INDEX");
+  put(hr, cRem, "REMARKS"); put(hr, cDec, "DECISION");
+  [0, 1, 2, 3, cCorrect, cDI, cD, cRem, cDec].forEach(c => merges.push({ s: { r: hr, c }, e: { r: hr + 1, c } }));
+
+  // "correct responses" = the count under the answer's letter (formula) — only when the
+  // option counts agree with the graded result; otherwise the graded count is written as a value.
+  const correctFormula = row1 => {
+    let f = `0`;
+    for (let i = oc - 1; i >= 0; i--) f = `IF($B${row1}="${letters[i]}",${L(cOpt0 + i)}${row1},${f})`;
+    return f;
+  };
+
+  let r = hr + 2;
+  rows.forEach(item => {
+    const u = r, l = r + 1;          // 0-based sheet rows
+    const u1 = u + 1, l1 = l + 1;    // 1-based for formulas
+    const mc = item.answer !== "—";
+    const ki = mc ? letters.indexOf(item.answer) : -1;
+    const useFormula = mc && ki >= 0 && item.upperOpts[ki] === item.upperCorrect && item.lowerOpts[ki] === item.lowerCorrect;
+
+    put(u, 0, item.item); put(u, 1, item.answer);
+    put(u, 2, "U"); put(l, 2, "L");
+    put(u, 3, item.groupSize, GS);
+    put(l, 3, item.groupSize, GS);
+    letters.forEach((_, i) => { put(u, cOpt0 + i, item.upperOpts[i] ?? 0); put(l, cOpt0 + i, item.lowerOpts[i] ?? 0); });
+
+    put(u, cCorrect, item.upperCorrect, useFormula ? correctFormula(u1) : undefined);
+    put(l, cCorrect, item.lowerCorrect, useFormula ? correctFormula(l1) : undefined);
+
+    const J = L(cCorrect), DIc = L(cDI), Dc = L(cD), GSc = L(3);
+    put(u, cDI, item.di, `(${J}${u1}+${J}${l1})/(${GSc}${u1}+${GSc}${l1})`);
+    put(u, cD,  item.d,  `(${J}${u1}-${J}${l1})/${GSc}${u1}`);
+    put(u, cRem, item.diRemark, `IF(${DIc}${u1}>=0.7,"Very Easy",IF(${DIc}${u1}>=0.3,"Average or Acceptable Difficulty","Very Difficult"))`);
+    put(l, cRem, item.dRemark,  `IF(${Dc}${u1}>=0.4,"Very good item",IF(${Dc}${u1}>=0.3,"Reasonably good item but possibly subject to improvement",IF(${Dc}${u1}>=0.2,"Marginally good item usually needs and subject to improvement","Poor item to be rejected")))`);
+    put(u, cDec, item.decision, `IF(${Dc}${u1}>=0.4,"Accept",IF(${Dc}${u1}>=0.2,"Revise","Reject"))`);
+    [0, 1, cDI, cD, cDec].forEach(c => merges.push({ s: { r: u, c }, e: { r: l, c } }));
+    r += 2;
   });
-  aoa.push([null]);
-  aoa.push([`No. of Items: ${rows.length}`, null, null, null, "Prepared by:"]);
-  aoa.push([null, null, null, null, (h.teacher || "").toUpperCase()]);
-  aoa.push([null, null, null, null, "Teacher"]);
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  r += 1;
+  put(r, 0, `No. of Items: ${rows.length}`);
+  if (iaHasSpecial(rows)) put(r + 1, 0, IA_SPECIAL_NOTE);
+  put(r, cCorrect, "Prepared by:");
+  put(r + 1, cCorrect, (h.teacher || "").toUpperCase());
+  put(r + 2, cCorrect, "Teacher");
+
+  ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: r + 2, c: lastCol } });
+  ws["!merges"] = merges;
   ws["!cols"] = [
-    { wch: 8 }, { wch: 36 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
-  ];
-  ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: 6 } },
-    { s: { r: 3, c: 0 }, e: { r: 3, c: 6 } },
-    { s: { r: 4, c: 0 }, e: { r: 4, c: 6 } },
-    { s: { r: 5, c: 0 }, e: { r: 5, c: 6 } },
+    { wch: 8 }, { wch: 8 }, { wch: 7 }, { wch: 11 },
+    ...letters.map(() => ({ wch: 5 })),
+    { wch: 14 }, { wch: 12 }, { wch: 15 }, { wch: 52 }, { wch: 10 },
   ];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, (SECTION_LABELS[secKey] || secKey).slice(0, 31));
+  XLSX.utils.book_append_sheet(wb, ws, (SECTION_LABELS[secKey] || secKey).replace(/[\\\/?*\[\]:]/g, "").slice(0, 31) || "Item Analysis");
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `item-analysis-${secKey.replace(/\s+/g, "_")}-${dateStr}.xlsx`);
   showToast("green", "⬇️", "Exported", "Item Analysis workbook downloaded.");

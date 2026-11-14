@@ -3536,7 +3536,10 @@ function getCurrentState() {
       itemCount:  exam.questions.length,
       maxScore:   getMaxScore(exam),
       itemTopics: exam.questions.map(q => q.competency || q.topic || "General"),
-      stats:      calculateStats(subs, exam.questions.length),
+      answerKey:  buildAnswerKey(exam),
+      itemTypes:  buildItemTypes(exam),
+      optionCount: getOptionCount(exam),
+      stats:      calculateStats(subs, exam.questions.length, exam),
       open:       exam.open,
       examType:   exam.examType,
       durationMinutes: exam.durationMinutes,
@@ -3565,9 +3568,15 @@ function getCurrentState() {
       answers:       s.answers.map(x => (x ? 1 : 0)),
       // itemCorrect[i] = true/false for original question num (i+1), sized to THIS submission's exam
       itemCorrect:   buildItemCorrect(s, sizeFor(s)),
+      // itemChoices[i] = 0-based index (0=A, 1=B, ...) of the option the student picked for
+      // original question num (i+1), mapped back to the exam's ORIGINAL choice order
+      // (choices are shuffled per student). -1 = blank / not multiple choice.
+      itemChoices:   buildItemChoices(s, sizeFor(s), examsByKey.get(s.gradeSection)),
     })),
     exams:          perKey,
-    stats:          calculateStats(submissions, legacySize),
+    stats:          calculateStats(submissions, legacySize, legacyExam),
+    answerKey:      legacyExam ? buildAnswerKey(legacyExam) : [],
+    optionCount:    getOptionCount(legacyExam),
     meanPercentage: calculateMeanPercentage(),
     itemCount:      legacySize,
     maxScore:       legacyExam ? getMaxScore(legacyExam) : 0,
@@ -3595,38 +3604,147 @@ function buildItemCorrect(submission, size) {
   return result;
 }
 
+// ── Item analysis — DepEd "Automated Item Analysis" worksheet ─────────────────
+// Upper (U) / Lower (L) groups = the top / bottom 27% of the class by score.
+//   Difficulty Index (DI)      = (U correct + L correct) / (2 × group size)   [Gay, 1985]
+//   Discrimination Index (D)   = (U correct − L correct) / group size          [Ebel, 1979]
+// DI:  ≥ 0.70 Very Easy · 0.30–0.69 Average or Acceptable Difficulty · < 0.30 Very Difficult
+// D:   ≥ 0.40 Very good (ACCEPT) · 0.30–0.39 Reasonably good (REVISE)
+//      0.20–0.29 Marginally good (REVISE) · < 0.20 Poor (REJECT)
+// The dashboard mirrors these rules (computeSectionStats) — keep the two in sync.
+const IA_LETTERS = ["A", "B", "C", "D", "E", "F"];
+
+function difficultyRemark(di) {
+  if (di >= 0.7) return "Very Easy";
+  if (di >= 0.3) return "Average or Acceptable Difficulty";
+  return "Very Difficult";
+}
+function discriminationRemark(d) {
+  if (d >= 0.4) return "Very good item";
+  if (d >= 0.3) return "Reasonably good item but possibly subject to improvement";
+  if (d >= 0.2) return "Marginally good item usually needs and subject to improvement";
+  return "Poor item to be rejected";
+}
+function itemDecision(d) {
+  if (d >= 0.4) return "Accept";
+  if (d >= 0.2) return "Revise";
+  return "Reject";
+}
+
+// Answer-key letter per item. Identification / matching items have no lettered choices,
+// so they use two pseudo-options: A = correct (match), B = wrong (not a match, incl. blank
+// or only partly matched) — their "answer" is therefore always "A".
+function buildAnswerKey(exam) {
+  if (!exam) return [];
+  return exam.questions.map(q => normalizeItemType(q.type) === "mc" ? (IA_LETTERS[q.correct] || null) : "A");
+}
+
+// "mc" | "identification" | "matching" per item (the dashboard footnotes the pseudo-options).
+function buildItemTypes(exam) {
+  return exam ? exam.questions.map(q => normalizeItemType(q.type)) : [];
+}
+
+// Number of option columns (A–D by default, up to F when an exam uses 5–6 choices).
+function getOptionCount(exam) {
+  let max = 4;
+  if (exam) for (const q of exam.questions) {
+    if (normalizeItemType(q.type) === "mc" && Array.isArray(q.choices)) max = Math.max(max, q.choices.length);
+  }
+  return Math.min(IA_LETTERS.length, max);
+}
+
+// For every item, the option a student picked as an index into the exam's ORIGINAL
+// choice order (0=A, 1=B, …), or -1 when blank / not multiple choice / not mappable.
+// Students see shuffled choices, so the picked choice TEXT (stored in questionMap)
+// is matched back to the exam's original list.
+function buildItemChoices(submission, size, exam) {
+  const result = new Array(size).fill(-1);
+  if (!exam || !Array.isArray(submission.questionMap)) return result;
+  for (const item of submission.questionMap) {
+    const type = normalizeItemType(item.type);
+    const idx = item.num - 1;
+    if (idx < 0 || idx >= size) continue;
+    if (type === "identification" || type === "matching") {
+      // A = correct (all pairs matched, for matching) · B = wrong / blank / partly matched
+      result[idx] = item.isCorrect ? 0 : 1;
+      continue;
+    }
+    const picked = Array.isArray(item.choices) ? item.choices[item.selectedIndex] : undefined;
+    if (picked === undefined) continue;
+    let orig = exam.questions[idx];
+    if (!orig || orig.num !== item.num) orig = exam.questions.find(q => q.num === item.num);
+    if (!orig || !Array.isArray(orig.choices)) continue;
+    result[idx] = orig.choices.indexOf(picked);   // -1 if the question was edited since
+  }
+  return result;
+}
+
 // Item analysis for ONE set of submissions that all took the same exam.
-function calculateStats(subs = submissions, size = 0) {
+function calculateStats(subs = submissions, size = 0, exam = null) {
   const n = subs.length;
-  if (n === 0) return { difficulty: [], overallDifficultyIndex: 0, upperGroup: [], lowerGroup: [], correctCounts: [], groupSize: 0 };
+  const optionCount = getOptionCount(exam);
+  const answerKey = buildAnswerKey(exam);
+  if (n === 0) {
+    return {
+      difficulty: [], overallDifficultyIndex: 0, upperGroup: [], lowerGroup: [], correctCounts: [], groupSize: 0,
+      upperOptions: [], lowerOptions: [], difficultyIndex: [], discriminationIndex: [],
+      difficultyRemarks: [], discriminationRemarks: [], decisions: [], answerKey, optionCount,
+    };
+  }
 
-  const matrix = subs.map(s => buildItemCorrect(s, size));
+  const rows = subs.map(s => ({
+    correct: buildItemCorrect(s, size),
+    choice:  buildItemChoices(s, size, exam),
+    pct:     Number(s.percentage) || 0,
+  }));
 
-  // Count total correct per item (B)
+  // Total correct per item across the whole class (kept for the TOS export)
   const correct = new Array(size).fill(0);
-  matrix.forEach(row => row.forEach((c, i) => { if (c) correct[i]++; }));
+  rows.forEach(r => r.correct.forEach((c, i) => { if (c) correct[i]++; }));
 
-  // Sort students by score descending for U/L grouping
+  // Group size = 27% of the class (rounded, at least 1); highest / lowest scorers.
   const k27 = Math.max(1, Math.round(n * 0.27));
-  const sorted = matrix
-    .map((row, i) => ({ row, score: subs[i].score }))
-    .sort((a, b) => b.score - a.score);
+  const sorted = rows.slice().sort((a, b) => b.pct - a.pct);
+  const upperRows = sorted.slice(0, k27);
+  const lowerRows = sorted.slice(n - k27);
 
-  const upperRows = sorted.slice(0, k27).map(x => x.row);
-  const lowerRows = sorted.slice(n - k27).map(x => x.row);
+  // Per item: correct count + how many chose each option, within a group.
+  const tally = group => {
+    const right = new Array(size).fill(0);
+    const opts  = Array.from({ length: size }, () => new Array(optionCount).fill(0));
+    group.forEach(r => r.correct.forEach((c, i) => {
+      if (c) right[i]++;
+      const ch = r.choice[i];
+      if (ch >= 0 && ch < optionCount) opts[i][ch]++;
+    }));
+    return { right, opts };
+  };
+  const U = tally(upperRows);
+  const L = tally(lowerRows);
 
-  // Count correct per item in upper and lower groups
-  const upperGroup = new Array(size).fill(0);
-  const lowerGroup = new Array(size).fill(0);
-  upperRows.forEach(row => row.forEach((c, i) => { if (c) upperGroup[i]++; }));
-  lowerRows.forEach(row => row.forEach((c, i) => { if (c) lowerGroup[i]++; }));
+  const difficultyIndex     = [];
+  const discriminationIndex = [];
+  for (let i = 0; i < size; i++) {
+    difficultyIndex.push((U.right[i] + L.right[i]) / (2 * k27));
+    discriminationIndex.push((U.right[i] - L.right[i]) / k27);
+  }
 
-  const difficulty = correct.map(c => Number(((c / n) * 100).toFixed(1)));
+  const difficulty = difficultyIndex.map(v => Number((v * 100).toFixed(1)));   // % — drives the chart
   const overallDifficultyIndex = difficulty.length
     ? Number((difficulty.reduce((a, b) => a + b, 0) / difficulty.length).toFixed(1))
     : 0;
 
-  return { difficulty, overallDifficultyIndex, upperGroup, lowerGroup, correctCounts: correct, groupSize: k27, totalStudents: n };
+  return {
+    difficulty, overallDifficultyIndex,
+    upperGroup: U.right, lowerGroup: L.right, correctCounts: correct,
+    upperOptions: U.opts, lowerOptions: L.opts,
+    difficultyIndex, discriminationIndex,
+    difficultyRemarks:     difficultyIndex.map(difficultyRemark),
+    discriminationRemarks: discriminationIndex.map(discriminationRemark),
+    decisions:             discriminationIndex.map(itemDecision),
+    answerKey, optionCount,
+    groupSize: k27, totalStudents: n,
+  };
 }
 
 function calculateMeanPercentage() {

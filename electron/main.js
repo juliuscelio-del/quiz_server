@@ -136,7 +136,7 @@ function showLicenseProblem() {
     const pick = dialog.showMessageBoxSync({
       type: "warning", title: "License needed", defaultId: 0, cancelId: 3,
       buttons: ["Copy machine ID", "Open data folder", "Import old SERVER folder…", "Quit"],
-      message: "This computer doesn't have a valid license.key yet.",
+      message: "DI KA PWED mogamit ane ug wai pananghid sa tag.iya",
       detail:
         `Machine ID:\n${id}\n\n` +
         "Option 1: send this ID to Julius Celio to get a license.key, then put it in the data folder and reopen the app.\n" +

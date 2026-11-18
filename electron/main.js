@@ -83,7 +83,7 @@ function chooseOldFolder(title) {
 
 // ── Import must happen BEFORE the server starts, or the running server would
 //    overwrite the imported files with what it has in memory. ──────────────────
-function runStartupImport() {
+async function runStartupImport() {
   // 1) an import requested from the menu last time
   if (fs.existsSync(PENDING_IMPORT)) {
     const src = fs.readFileSync(PENDING_IMPORT, "utf8").trim();
@@ -98,19 +98,99 @@ function runStartupImport() {
   const fresh = !fs.existsSync(path.join(DATA_DIR, "students.json")) &&
                 !fs.existsSync(path.join(DATA_DIR, "license.key"));
   if (!fresh) return;
-  const pick = dialog.showMessageBoxSync({
-    type: "question", title: "GNHS Quiz Teacher", buttons: ["Choose old SERVER folder…", "Start fresh"],
-    defaultId: 0, cancelId: 1,
-    message: "Welcome! Do you have an existing SERVER folder with your students, results and license.key?",
-    detail: "Choose it and everything will be copied into this app. Your original folder is not changed.",
-  });
-  if (pick === 0) {
-    const src = chooseOldFolder("Choose your old SERVER folder");
-    if (src) {
-      const n = importFrom(src);
-      dialog.showMessageBoxSync({ type: "info", message: n ? `Imported ${n} item(s). You're all set.` : "No quiz data files were found in that folder." });
-    }
+  await showWelcome();   // one message, one START button
+}
+
+function welcomeHtml() {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>GNHS Quiz Teacher</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    background:linear-gradient(135deg,#06b6d4 0%,#3b82f6 45%,#8b5cf6 100%);
+    color:#fff;-webkit-app-region:drag;user-select:none;position:relative;
   }
+  .blob{position:absolute;border-radius:50%;filter:blur(2px);opacity:.55;animation:float 7s ease-in-out infinite}
+  .b1{width:220px;height:220px;left:-70px;top:-60px;background:radial-gradient(circle,#fde047,transparent 70%)}
+  .b2{width:260px;height:260px;right:-90px;bottom:-80px;background:radial-gradient(circle,#f472b6,transparent 70%);animation-delay:-3s}
+  .b3{width:150px;height:150px;right:30px;top:40px;background:radial-gradient(circle,#4ade80,transparent 70%);animation-delay:-5s}
+  .card{
+    position:relative;z-index:1;height:100%;padding:34px 36px 30px;text-align:center;
+    display:flex;flex-direction:column;align-items:center;
+    border:2px solid rgba(255,255,255,.55);animation:pop .45s ease-out both;
+  }
+  .icon{
+    width:92px;height:92px;border-radius:50%;
+    background:linear-gradient(145deg,#4ade80,#16a34a);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 0 6px rgba(255,255,255,.35),0 10px 28px rgba(0,0,0,.25);
+    animation:pulse 2s infinite;
+  }
+  .icon svg{width:52px;height:52px}
+  .badge{
+    margin-top:18px;padding:5px 18px;border-radius:999px;
+    background:#fde047;color:#78350f;font-weight:900;font-size:13px;letter-spacing:.24em;
+    box-shadow:0 4px 12px rgba(0,0,0,.2);
+  }
+  h1{margin-top:16px;font-size:30px;font-weight:900;text-shadow:0 3px 14px rgba(0,0,0,.35)}
+  p{margin-top:10px;font-size:21px;line-height:1.45;font-weight:600;text-shadow:0 2px 10px rgba(0,0,0,.3)}
+  p b{color:#fde047}
+  button{
+    -webkit-app-region:no-drag;margin-top:auto;width:100%;padding:16px;
+    border:0;border-radius:14px;cursor:pointer;
+    font-size:20px;font-weight:900;letter-spacing:.2em;color:#052e16;
+    background:linear-gradient(180deg,#bef264,#22c55e);
+    box-shadow:0 8px 24px rgba(34,197,94,.6),inset 0 -3px 0 rgba(0,0,0,.15);
+    transition:transform .1s,filter .15s;
+  }
+  button:hover{filter:brightness(1.1)}
+  button:active{transform:scale(.97)}
+  button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+  @keyframes pop{from{opacity:0;transform:scale(.94) translateY(12px)}to{opacity:1;transform:none}}
+  @keyframes pulse{70%{box-shadow:0 0 0 6px rgba(255,255,255,.35),0 0 0 26px rgba(74,222,128,0)}100%{box-shadow:0 0 0 6px rgba(255,255,255,.35),0 0 0 0 rgba(74,222,128,0)}}
+  @keyframes float{50%{transform:translateY(18px) scale(1.06)}}
+  @media (prefers-reduced-motion:reduce){.card,.icon,.blob{animation:none}}
+</style></head>
+<body>
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="card">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+    </div>
+    <div class="badge">APPROVED</div>
+    <h1>Welcome!</h1>
+    <p>Kay naa naman ka license mogamit.<br><b>Pwed naka mag.start</b></p>
+    <button id="start" autofocus>START</button>
+  </div>
+  <script>
+    const go = () => { location.href = "gnhs://start"; };
+    document.getElementById("start").addEventListener("click", go);
+    window.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  </script>
+</body></html>`;
+}
+
+// Resolves when the teacher clicks START (or the window is closed).
+function showWelcome() {
+  return new Promise((resolve) => {
+    const w = new BrowserWindow({
+      width: 500, height: 440,
+      frame: false, resizable: false, minimizable: false, maximizable: false,
+      alwaysOnTop: true, center: true, show: false,
+      backgroundColor: "#3b82f6", title: "GNHS Quiz Teacher",
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    w.setMenu(null);
+    w.webContents.on("will-navigate", (e, url) => {
+      e.preventDefault();                           // the page can never navigate anywhere else
+      if (url.startsWith("gnhs://start")) w.close();
+    });
+    w.once("ready-to-show", () => { w.show(); w.focus(); });
+    w.on("closed", resolve);
+    w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(welcomeHtml()));
+  });
 }
 
 // ── Start the quiz server inside this process ────────────────────────────────
@@ -279,6 +359,7 @@ function waitForServer(ms = 20000) {
 
 // ── Window + menu ────────────────────────────────────────────────────────────
 let win = null;
+let starting = true;          // true until the dashboard window exists (the welcome window closing must not quit the app)
 let quitting = false;
 let confirmedClose = false;   // the teacher has answered the exit dialog
 let askingToClose = false;    // the exit dialog is currently open
@@ -474,7 +555,7 @@ app.whenReady().then(async () => {
 
   // 2) Approved: normal startup.
   buildMenu();
-  runStartupImport();
+  await runStartupImport();
   if (!startServer()) { showNotAllowedAndQuit(); return; }
 
   const up = await waitForServer();
@@ -483,6 +564,7 @@ app.whenReady().then(async () => {
     return app.exit(1);
   }
   createWindow();
+  starting = false;
   // Checks for app updates AND keeps the approved-machines list fresh (hourly).
   startAutoCheck(win, async () => {
     try { await saveNow(); } catch (_) {}   // save the quiz data first
@@ -491,4 +573,4 @@ app.whenReady().then(async () => {
 });
 
 app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => { if (!starting) app.quit(); });

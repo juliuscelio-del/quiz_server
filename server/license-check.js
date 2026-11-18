@@ -6,6 +6,10 @@
  *   This file locks the quiz server to specific, pre-authorized
  *   machines. Do not remove or modify — doing so is what this
  *   protection is meant to prevent.
+ *
+ *   v2: licenses are signed with a PRIVATE key that only the
+ *   author holds. This file contains only the PUBLIC key, which
+ *   can check a license but can never create one.
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -16,11 +20,14 @@ const crypto = require("crypto");
 const { execSync } = require("child_process");
 const DATA_DIR = process.env.GNHS_DATA_DIR || __dirname;
 
-// Secret split across parts so it isn't a single greppable string.
-// This raises the bar against casual copying — it is NOT unbreakable
-// against someone determined to read and patch this file.
-const _p = ["Gu4d", "4lup3", "-QU1Z", "-J.C3l10", "-2026", "!lock"];
-const SECRET = _p.join("");
+// Paste the PUBLIC key printed by:  node make-license.js init
+// (the whole block, including the BEGIN/END lines). It is safe to commit.
+const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAAZbUGsMN4Cgru16E3vyrwAQfxdllty+4kEy7LHPOeZQ=
+-----END PUBLIC KEY-----`;
+
+// What gets signed. Must match make-license.js.
+const SIGN_PREFIX = "GNHS-LICENSE-v2|";
 
 /**
  * A stable hardware identifier for this machine.
@@ -78,11 +85,18 @@ function getMachineId() {
   return crypto.createHash("sha256").update(hwId).digest("hex").slice(0, 24);
 }
 
-function sign(machineId) {
-  return crypto.createHmac("sha256", SECRET).update(machineId).digest("hex");
-}
-
 const LICENSE_FILE = path.resolve(DATA_DIR, "license.key");
+
+/** Returns true / false, or throws if the public key above was never filled in. */
+function signatureIsValid(machineId, sig2) {
+  const publicKey = crypto.createPublicKey(PUBLIC_KEY); // throws if still the placeholder
+  return crypto.verify(
+    null,
+    Buffer.from(SIGN_PREFIX + machineId),
+    publicKey,
+    Buffer.from(String(sig2), "base64")
+  );
+}
 
 function checkLicense() {
   const machineId = getMachineId();
@@ -100,10 +114,10 @@ function checkLicense() {
     process.exit(1);
   }
 
-  const { machineId: licensedId, signature, label } = data;
+  const { machineId: licensedId, sig2, label } = data;
 
-  if (!licensedId || !signature) {
-    printLockedMessage(machineId, "license.key is missing required fields.");
+  if (!licensedId || !sig2) {
+    printLockedMessage(machineId, "license.key is missing required fields (ask for a new license.key).");
     process.exit(1);
   }
 
@@ -112,8 +126,14 @@ function checkLicense() {
     process.exit(1);
   }
 
-  const expected = sign(licensedId);
-  if (expected !== signature) {
+  let ok = false;
+  try {
+    ok = signatureIsValid(licensedId, sig2);
+  } catch (e) {
+    printLockedMessage(machineId, "This app build has no valid public key set up.");
+    process.exit(1);
+  }
+  if (!ok) {
     printLockedMessage(machineId, "license.key signature is invalid.");
     process.exit(1);
   }

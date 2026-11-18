@@ -130,24 +130,30 @@ function startServer() {
   }
 }
 
-function showLicenseProblem() {
-  const id = require("../server/license-check.js").getMachineId();
+// Shown when this computer is not approved. Returns true if we should try
+// starting the server again, false if the app is quitting.
+async function showLicenseProblem() {
+  const lic = require("../server/license-check.js");
+  const id = lic.getMachineId();
   for (;;) {
-    const pick = dialog.showMessageBoxSync({
-      type: "warning", title: "License needed", defaultId: 0, cancelId: 3,
-      buttons: ["Copy machine ID", "Open data folder", "Import old SERVER folder…", "Quit"],
+    const r = await dialog.showMessageBox({
+      type: "warning", title: "License needed", defaultId: 0, cancelId: 4,
+      buttons: ["Copy machine ID", "Check again", "Open data folder", "Import old SERVER folder…", "Quit"],
       message: "DI KA PWED mogamit ane ug wai pananghid sa tag.iya",
       detail:
         `Machine ID:\n${id}\n\n` +
-        "Option 1: send this ID to Julius Celio to get a license.key, then put it in the data folder and reopen the app.\n" +
-        "Option 2: if this computer already ran the quiz server, import your old SERVER folder (its license.key comes along).",
+        "1) Click \"Copy machine ID\" and send it to Julius Celio.\n" +
+        "2) After he approves this computer, connect to the internet and click \"Check again\".\n\n" +
+        "If this computer already ran the quiz server before, you can instead import your old SERVER folder (its license.key comes along).",
     });
+    const pick = r.response;
     if (pick === 0) clipboard.writeText(id);
-    else if (pick === 1) shell.openPath(DATA_DIR);
-    else if (pick === 2) {
+    else if (pick === 1) { await lic.refreshAllowlist(); return true; }
+    else if (pick === 2) shell.openPath(DATA_DIR);
+    else if (pick === 3) {
       const src = chooseOldFolder("Choose your old SERVER folder");
-      if (src) { importFrom(src); app.relaunch(); app.exit(0); return; }
-    } else { app.exit(0); return; }
+      if (src) { importFrom(src); return true; }
+    } else { app.exit(0); return false; }
   }
 }
 
@@ -352,13 +358,29 @@ process.on("uncaughtException", (err) => {
 app.whenReady().then(async () => {
   buildMenu();
   runStartupImport();
-  if (!startServer()) return showLicenseProblem();
+
+  // 1) Try to start. The license check inside the server decides if this computer is approved.
+  let started = startServer();
+
+  // 2) Not approved? Maybe Julius just approved it: download the newest list and try once more.
+  if (!started) {
+    await require("../server/license-check.js").refreshAllowlist();
+    started = startServer();
+  }
+
+  // 3) Still not approved: show the "License needed" box until approved or the teacher quits.
+  while (!started) {
+    if (!(await showLicenseProblem())) return;
+    started = startServer();
+  }
+
   const up = await waitForServer();
   if (!up) {
     dialog.showErrorBox("Server didn't start", "The quiz server did not respond. Close the app and try again.");
     return app.exit(1);
   }
   createWindow();
+  // Checks for app updates AND keeps the approved-machines list fresh (hourly).
   startAutoCheck(win, async () => {
     try { await saveNow(); } catch (_) {}   // save the quiz data first
     confirmedClose = true;                  // skip the Save/Exit dialog

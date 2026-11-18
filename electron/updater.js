@@ -17,6 +17,8 @@ const UP_TO_DATE_MS = 5000;    // "Okie pa ag version..." popup
 const NOTICE_MS = 4000;        // offline / error popups
 const RESTART_MS = 5000;       // countdown before the app restarts to install the update
 const CHECK_FAILSAFE_MS = 60000; // if a check hangs this long, let the popup close so nobody is stuck
+const REVOKED_MS = 8000;       // "License removed" popup stays this long, then the app closes
+const ALLOWLIST_EVERY_MS = 60 * 60 * 1000; // re-check the approved-machines list every hour
 
 // Popup window size (includes 20px around the card for the shadow)
 const W = 480, H = 300;
@@ -41,6 +43,7 @@ let forceClose = false;    // set when the app itself closes the popup
 let macInfo = null;        // update info found on Mac
 let pendingMac = null;     // Mac: function that swaps the app and restarts
 let installing = false;
+let revoking = false;      // this computer was removed from the approved list; the app is closing
 
 // ── Icons (inline SVG) ──────────────────────────────────────────────────────
 const SVG = (path) =>
@@ -122,6 +125,9 @@ function pageUrl({ title, message, icon = 'check', spinner, progress, buttons = 
 // ── Popup window (centered on the laptop screen) ────────────────────────────
 // onDone: what to run when autoCloseMs ends (defaults to just closing the popup)
 function show(state, autoCloseMs, onDone) {
+  // Once this computer is being locked out, only the "License removed" popup may show.
+  if (revoking && !state.revoke) return;
+
   clearTimeout(closeTimer);
   // The student cannot close the popup while it is checking, counting down or downloading.
   // Popups with their own buttons stay closable through those buttons.
@@ -373,7 +379,7 @@ autoUpdater.on('error', () => {
 
 // ── Check ───────────────────────────────────────────────────────────────────
 async function check() {
-  if (finished || checking || !app.isPackaged) return;
+  if (finished || checking || revoking || !app.isPackaged) return;
   if (!net.isOnline()) {
     if (!shownOffline) {
       shownOffline = true;
@@ -400,12 +406,39 @@ async function check() {
   }
 }
 
+// ── Approved-machines list ──────────────────────────────────────────────────
+// Downloads the signed allowlist (if online) and, if this computer is no longer
+// on it, saves the quiz data and closes the app. Runs at launch and every hour.
+async function syncAllowlist() {
+  if (revoking) return;
+  // required HERE, not at the top of the file: main.js sets GNHS_DATA_DIR only after it
+  // loads this file, and license-check.js reads that folder the moment it is loaded.
+  const lic = require('../server/license-check.js');
+  if (net.isOnline()) {
+    try { await lic.refreshAllowlist(); } catch (e) { /* offline or GitHub down: keep the list we have */ }
+  }
+  if (lic.isStillAllowed()) return;
+
+  revoking = true;
+  clearTimeout(closeTimer);
+  try { await beforeInstall(); } catch (e) { /* saves quiz data, skips the exit dialog */ }
+  show({
+    title: 'License removed',
+    message: 'This computer is no longer approved to run GNHS Quiz. Your data was saved. Contact Julius Celio.',
+    icon: 'alert',
+    revoke: true
+  }, REVOKED_MS);
+  setTimeout(() => { closePopup(); app.quit(); }, REVOKED_MS);
+}
+
 // Call once after the main window is created
 function startAutoCheck(win, onBeforeInstall) {
   mainWin = win;
   if (onBeforeInstall) beforeInstall = onBeforeInstall;
   if (win && win.on) win.on('closed', closePopup);   // closing the app never leaves the popup behind
   check();                          // every time the app opens
+  syncAllowlist();                  // approved-machines list, at launch...
+  setInterval(syncAllowlist, ALLOWLIST_EVERY_MS);   // ...and every hour after
   const t = setInterval(() => {     // if offline at launch, retry when internet returns
     if (finished) return clearInterval(t);
     check();

@@ -340,6 +340,42 @@
   .nav-count-chip:hover { background: var(--sky); color: var(--blue); border-color: var(--sky-deep); }
   .nav-count-chip.active { background: var(--blue-bright); color: #fff; border-color: var(--blue-bright); }
 
+  /* Log toggles in the Viewing bar (Integrity Log / Attendance Log) — expand / collapse */
+  .nav-log { position: relative; flex-shrink: 0; }
+  .nav-log-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    font: inherit; font-size: .78rem; font-weight: 700; color: var(--navy);
+    background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+    padding: 6px 10px; cursor: pointer; white-space: nowrap; transition: all .15s;
+  }
+  .nav-log-btn:hover { background: var(--sky); border-color: var(--sky-deep); }
+  .nav-log.open .nav-log-btn { background: var(--sky); border-color: var(--blue-bright); box-shadow: 0 0 0 3px rgba(59,130,246,.14); }
+  .nav-log-btn .chev { font-size: .65rem; color: var(--gray); transition: transform .2s; }
+  .nav-log.open .nav-log-btn .chev { transform: rotate(180deg); }
+  .nav-log-btn.pulse { animation: nav-log-pulse 1.2s ease-out 2; }
+  @keyframes nav-log-pulse { 0%{box-shadow:0 0 0 0 rgba(239,68,68,.55)} 100%{box-shadow:0 0 0 10px rgba(239,68,68,0)} }
+  .nav-log-pop {
+    display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 400;
+    width: 380px; max-width: calc(100vw - 340px);
+    background: var(--white); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow-lg); padding: 12px;
+  }
+  .nav-log.open .nav-log-pop { display: block; }
+  .nav-log-pop .log-container { height: 260px; }
+  .nav-log-pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: .8rem; font-weight: 800; color: var(--navy); }
+  .nav-log-pop-head button { font: inherit; font-size: .7rem; font-weight: 700; color: var(--gray); background: var(--gray-bg); border: 1px solid var(--border); border-radius: 7px; padding: 2px 8px; cursor: pointer; }
+  .nav-log-pop-head button:hover { background: var(--sky); color: var(--blue); }
+  @media (max-width: 999px) { .nav-log-pop { max-width: calc(100vw - 40px); } }
+  /* Bar order: Viewing label → section dropdown → section chip → Attendance Log → Integrity Log.
+     Change the "order" numbers to rearrange. */
+  .section-nav-inner > .section-nav-label { order: 0; }
+  .section-nav-inner > #section-select { order: 1; }
+  .section-nav-inner > #active-section-chip { order: 2; }
+  .section-nav-inner > #nav-log-attendance { order: 3; }
+  .section-nav-inner > #nav-log-integrity { order: 4; }
+  .section-nav-inner > span[id^="cnt-"]:not(#cnt-ALL) { order: 9; }
+  .log-stash { display: none; }
+
   /* ═══════════════════════════════════════════
      PER-SECTION DASHBOARD PANELS
   ═══════════════════════════════════════════ */
@@ -399,7 +435,7 @@
     margin: 0 auto;
     padding: 18px 20px 36px;
     display: grid;
-    grid-template-columns: 1fr 370px;
+    grid-template-columns: 1fr;   /* logs moved to the Viewing bar, so one full-width column */
     gap: 18px;
   }
   @media (max-width: 980px) { .dash-body { grid-template-columns: 1fr; } }
@@ -902,6 +938,24 @@
 <div class="section-nav">
   <div class="section-nav-inner">
     <span class="section-nav-label">📊 Viewing</span>
+    <div class="nav-log" id="nav-log-integrity">
+      <button type="button" class="nav-log-btn" id="nav-log-btn-integrity" aria-expanded="false" aria-controls="nav-log-pop-integrity" title="Show / hide the Integrity Log">
+        <span>🔍 Integrity Log</span><span id="nav-badge-slot-integrity"></span><span class="chev">▼</span>
+      </button>
+      <div class="nav-log-pop" id="nav-log-pop-integrity">
+        <div class="nav-log-pop-head"><span>🔍 Integrity Log</span><button type="button" data-close-log="integrity">Collapse ▲</button></div>
+        <div id="nav-log-body-integrity"></div>
+      </div>
+    </div>
+    <div class="nav-log" id="nav-log-attendance">
+      <button type="button" class="nav-log-btn" id="nav-log-btn-attendance" aria-expanded="false" aria-controls="nav-log-pop-attendance" title="Show / hide the Attendance Log">
+        <span>📋 Attendance Log</span><span id="nav-badge-slot-attendance"></span><span class="chev">▼</span>
+      </button>
+      <div class="nav-log-pop" id="nav-log-pop-attendance">
+        <div class="nav-log-pop-head"><span>📋 Attendance Log</span><button type="button" data-close-log="attendance">Collapse ▲</button></div>
+        <div id="nav-log-body-attendance"></div>
+      </div>
+    </div>
     <select id="section-select" title="Choose the section–subject to view and configure" style="font:inherit;font-size:.8rem;font-weight:700;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--white);color:var(--navy);max-width:260px;cursor:pointer;">
       <option value="ALL">All Sections</option>
     </select>
@@ -1628,24 +1682,14 @@ function buildPanelHTML(secKey) {
       <div>
         ${rightCol}
 
-        <!-- Integrity Log -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title"><span class="c-icon">🔍</span> Integrity Log <span class="badge badge-red" id="log-badge-${id}">0 events</span></div>
-          </div>
-          <div class="log-container" id="integrity-log-${id}">
-            <div style="color:#a5b4fc;font-size:.7rem">⏳ Waiting for events…</div>
-          </div>
-        </div>
-
-        <!-- Attendance Log -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title"><span class="c-icon">📋</span> Attendance Log <span class="badge badge-red" id="attendance-badge-${id}">0 absent</span></div>
-          </div>
-          <div class="log-container" id="attendance-log-${id}">
-            <div style="color:#a5b4fc;font-size:.7rem">⏳ Waiting for events…</div>
-          </div>
+        <!-- Integrity Log + Attendance Log live in the Viewing bar at the top.
+             Each section keeps its own copy here (hidden); switchSection() moves the
+             active section's copy up into the bar. -->
+        <div class="log-stash" id="log-stash-${id}">
+          <span class="badge badge-red" id="log-badge-${id}">0 events</span>
+          <div class="log-container" id="integrity-log-${id}"><div style="color:#a5b4fc;font-size:.7rem">⏳ Waiting for events…</div></div>
+          <span class="badge badge-red" id="attendance-badge-${id}">0 absent</span>
+          <div class="log-container" id="attendance-log-${id}"><div style="color:#a5b4fc;font-size:.7rem">⏳ Waiting for events…</div></div>
         </div>
       </div>
     </div>
@@ -1896,9 +1940,76 @@ function switchSection(key) {
     const count = countEl ? countEl.textContent : "0";
     chip.innerHTML = `${SECTION_LABELS[key] || key} &nbsp;<strong>${count}</strong>`;
   }
+  mountLogsFor(key);
   updatePauseAllButton();
   if (typeof refreshConfigButtons === "function") refreshConfigButtons();
 }
+
+// ── Integrity / Attendance logs in the Viewing bar ─────────────────────────────
+// Every section panel keeps its own (hidden) log elements so all the existing
+// log-writing code keeps working. The active section's elements are moved into
+// the bar's expandable dropdowns; the previous section's go back to its panel.
+let mountedLogsId = null;
+let suppressLogPulse = false;
+function mountLogsFor(key) {
+  const id = key.replace(/[ .]/g, "_");
+  if (mountedLogsId === id) return;
+  if (mountedLogsId) {
+    const stash = document.getElementById(`log-stash-${mountedLogsId}`);
+    if (stash) {
+      ["log-badge-","integrity-log-","attendance-badge-","attendance-log-"].forEach(pre => {
+        const el = document.getElementById(pre + mountedLogsId);
+        if (el) stash.appendChild(el);
+      });
+    }
+  }
+  const put = (elId, targetId) => {
+    const el = document.getElementById(elId), target = document.getElementById(targetId);
+    if (el && target) target.appendChild(el);
+  };
+  put(`log-badge-${id}`,        "nav-badge-slot-integrity");
+  put(`integrity-log-${id}`,    "nav-log-body-integrity");
+  put(`attendance-badge-${id}`, "nav-badge-slot-attendance");
+  put(`attendance-log-${id}`,   "nav-log-body-attendance");
+  mountedLogsId = id;
+  suppressLogPulse = true; setTimeout(() => { suppressLogPulse = false; }, 0);
+}
+
+(function setupNavLogs() {
+  const KEY = "teacherDashboardLogsOpen";
+  const kinds = ["integrity", "attendance"];
+  function setOpen(kind, open) {
+    const wrap = document.getElementById(`nav-log-${kind}`);
+    const btn  = document.getElementById(`nav-log-btn-${kind}`);
+    if (!wrap || !btn) return;
+    wrap.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) btn.classList.remove("pulse");
+  }
+  kinds.forEach(kind => {
+    document.getElementById(`nav-log-btn-${kind}`)?.addEventListener("click", e => {
+      e.stopPropagation();
+      const open = !document.getElementById(`nav-log-${kind}`).classList.contains("open");
+      kinds.forEach(k => { if (k !== kind) setOpen(k, false); });   // one dropdown at a time
+      setOpen(kind, open);
+    });
+    document.querySelector(`[data-close-log="${kind}"]`)?.addEventListener("click", () => setOpen(kind, false));
+    document.getElementById(`nav-log-pop-${kind}`)?.addEventListener("click", e => e.stopPropagation());
+    // gently pulse the button when new entries arrive while it is collapsed
+    const body = document.getElementById(`nav-log-body-${kind}`);
+    if (body && window.MutationObserver) {
+      new MutationObserver(() => {
+        const wrap = document.getElementById(`nav-log-${kind}`);
+        const btn  = document.getElementById(`nav-log-btn-${kind}`);
+        if (suppressLogPulse || !wrap || !btn || wrap.classList.contains("open")) return;
+        btn.classList.remove("pulse"); void btn.offsetWidth; btn.classList.add("pulse");
+      }).observe(body, { childList: true, subtree: true });
+    }
+  });
+  document.addEventListener("click", () => kinds.forEach(k => setOpen(k, false)));
+  document.addEventListener("keydown", e => { if (e.key === "Escape") kinds.forEach(k => setOpen(k, false)); });
+  mountLogsFor(currentSection || "ALL");
+})();
 
 // ── Connection ─────────────────────────────────────────────────────────────────
 socket.on("connect", () => {

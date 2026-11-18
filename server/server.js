@@ -34,6 +34,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
+  maxHttpBufferSize: 8e6, // the School & Roster tab sends the whole roster + logo in one message
   pingTimeout: 10000,
   pingInterval: 8000,
 });
@@ -99,7 +100,28 @@ function quarantineCorruptFile(filePath, err) {
   }
 }
 const STUDENT_QUESTIONS_FILE = path.resolve(DATA_DIR, "student-questions.json");
-const RESET_PASSWORD = process.env.RESET_PASSWORD || "303457guad";
+// ── Admin password ───────────────────────────────────────────────────────────
+// Stored as a salted scrypt hash in admin.json (data folder), changed from the
+// dashboard's School & Roster screen. Until a password has been set, the old
+// built-in one still works so existing installs aren't locked out; the screen
+// warns until it is changed. RESET_PASSWORD in the environment overrides all.
+const ADMIN_FILE = path.resolve(DATA_DIR, "admin.json");
+const LEGACY_DEFAULT_PASSWORD = "303457guad";
+const crypto = require("crypto");
+let adminAuth = null; // { salt, hash } (hex)
+try {
+  const a = JSON.parse(fs.readFileSync(ADMIN_FILE, "utf8"));
+  if (a && typeof a.salt === "string" && typeof a.hash === "string") adminAuth = a;
+} catch {}
+function hashPassword(pw, salt) { return crypto.scryptSync(String(pw), salt, 32).toString("hex"); }
+function isAdminPassword(p) {
+  p = String(p == null ? "" : p);
+  if (process.env.RESET_PASSWORD) return p === process.env.RESET_PASSWORD;
+  if (!adminAuth) return p === LEGACY_DEFAULT_PASSWORD;
+  const a = Buffer.from(hashPassword(p, adminAuth.salt), "hex"), b = Buffer.from(adminAuth.hash, "hex");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+const usingDefaultPassword = () => !process.env.RESET_PASSWORD && !adminAuth;
 const DEFAULT_QUIZ_DURATION_MINUTES = 60;
 const MIN_QUIZ_DURATION_MINUTES = 1;
 const MAX_QUIZ_DURATION_MINUTES = 480; // 8 hours, sanity ceiling
@@ -116,22 +138,130 @@ function getExamDurationMs(exam) {
   return (exam ? exam.durationMinutes : quizDurationMinutes) * 60 * 1000;
 }
 
-// ── Grade / Section / Subject structure ─────────────────────────────────────
-// Single source of truth for the school's Grade 7-10 sections and the 8
-// DepEd subjects taught in every section. Everything else (SECTION_KEY_MAP,
-// SECTION_ORDER, the dashboard's section list, the /api/structure endpoint)
-// is derived from this so there's only one place to edit when a section or
-// subject changes.
-const SUBJECTS = [
+// ── School profile + Grade / Section / Subject structure ───────────────────
+// Everything school-specific (name, school year, logo, grade levels, sections,
+// subjects) lives in school.json in the data folder and is edited from the
+// dashboard's "School & Roster" tab. The values below are only the defaults
+// used when school.json doesn't exist yet (so existing GNHS installs keep
+// working exactly as before). Everything else (SECTION_KEY_MAP, SECTION_ORDER,
+// the dashboard's section list, the /api/structure endpoint) is derived from
+// GRADE_STRUCTURE + SUBJECTS by rebuildStructure(), so there is one place to
+// change when a section or subject changes.
+const SCHOOL_FILE = path.resolve(DATA_DIR, "school.json");
+
+const DEFAULT_SCHOOL = {
+  name:     "Guadalupe National High School",
+  year:     "",                                  // e.g. "2026-2027"
+  location: "Maasin City, Southern Leyte",
+  tagline:  "Founded 1968",
+  region:   "Region VIII, Eastern Visayas",      // DepEd item-analysis header
+  division: "Maasin City Division",
+  logo:     null,                                // data:image/jpeg;base64,... (null = built-in logo)
+  hideLogo: false,                               // true = show no logo at all
+};
+const DEFAULT_SUBJECTS = [
   "Filipino", "English", "Math", "Science", "AP", "Values Education", "MAPEH", "TLE",
 ];
-
-const GRADE_STRUCTURE = {
+const DEFAULT_GRADES = {
   "Grade 7":  ["RIZAL", "BONIFACIO"],
   "Grade 8":  ["AQUINO", "MABINI", "JACINTO"],
   "Grade 9":  ["DEL PILAR", "JUAN LUNA"],
   "Grade 10": ["DAGOHOY", "SILANG"],
 };
+
+let SCHOOL = { ...DEFAULT_SCHOOL };
+let SUBJECTS = DEFAULT_SUBJECTS.slice();
+let GRADE_STRUCTURE = JSON.parse(JSON.stringify(DEFAULT_GRADES));
+
+function loadSchoolConfig() {
+  if (!fs.existsSync(SCHOOL_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(SCHOOL_FILE, "utf8")) || {};
+    const clean = sanitizeSchoolSetup(raw);
+    if (clean.error) throw new Error(clean.error);
+    SCHOOL = clean.school;
+    SUBJECTS = clean.subjects;
+    GRADE_STRUCTURE = clean.grades;
+  } catch (err) {
+    console.error("❌ Error loading school.json:", err.message);
+    quarantineCorruptFile(SCHOOL_FILE, err);
+  }
+}
+function saveSchoolConfig() {
+  try {
+    atomicWriteFileSync(SCHOOL_FILE, JSON.stringify({ ...SCHOOL, subjects: SUBJECTS, grades: GRADE_STRUCTURE }, null, 2));
+  } catch (err) {
+    console.error("❌ Failed to save school.json:", err.message);
+    throw err;
+  }
+}
+
+const MAX_LOGO_DATA_URL_LENGTH = 700 * 1024;
+function cleanText(v, max) {
+  return String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+// Validates + normalises a whole school setup (profile, subjects, grades).
+// Returns { school, subjects, grades } or { error }. Used for both loading
+// school.json and for the dashboard's save request, so bad data can never
+// get into the running server.
+function sanitizeSchoolSetup(input) {
+  const src = input || {};
+  const s = src.school && typeof src.school === "object" ? src.school : src;
+  const name = cleanText(s.name, 120);
+  if (!name) return { error: "School name can't be empty." };
+  let logo = s.logo == null || s.logo === "" ? null : String(s.logo);
+  if (logo !== null) {
+    if (!/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(logo)) return { error: "The logo must be a JPEG or PNG picture." };
+    if (logo.length > MAX_LOGO_DATA_URL_LENGTH) return { error: "The logo picture is too large." };
+  }
+  const school = {
+    name,
+    year:     cleanText(s.year, 30),
+    location: cleanText(s.location, 120),
+    tagline:  cleanText(s.tagline, 80),
+    region:   cleanText(s.region, 80),
+    division: cleanText(s.division, 80),
+    logo,
+    hideLogo: logo === null && Boolean(s.hideLogo),
+  };
+
+  // Subjects: unique (case-insensitive), no hyphens (a dashboard key is
+  // SECTION-SUBJECT and is split on the LAST hyphen).
+  if (!Array.isArray(src.subjects)) return { error: "Subjects are missing." };
+  const subjects = [];
+  for (const sub of src.subjects) {
+    const t = cleanText(sub, 40);
+    if (!t) continue;
+    if (t.includes("-")) return { error: `Subject "${t}" can't contain a hyphen (-). Use a space instead.` };
+    if (subjects.some(x => x.toUpperCase() === t.toUpperCase())) return { error: `Subject "${t}" is listed twice.` };
+    subjects.push(t);
+  }
+  if (!subjects.length) return { error: "Add at least one subject." };
+
+  // Grades -> sections: names uppercased (students log in by uppercase name),
+  // section names unique across ALL grades.
+  if (!src.grades || typeof src.grades !== "object") return { error: "Grade levels are missing." };
+  const entries = Array.isArray(src.grades) ? src.grades.map(g => [g.name, g.sections]) : Object.entries(src.grades);
+  const grades = {};
+  const seenSections = new Set();
+  for (const [gradeRaw, secs] of entries) {
+    const grade = cleanText(gradeRaw, 40);
+    if (!grade) continue;
+    if (Object.prototype.hasOwnProperty.call(grades, grade)) return { error: `Grade level "${grade}" is listed twice.` };
+    const list = [];
+    for (const secRaw of Array.isArray(secs) ? secs : []) {
+      const sec = cleanText(secRaw, 40).toUpperCase();
+      if (!sec) continue;
+      if (seenSections.has(sec)) return { error: `Section "${sec}" is listed twice. Each section name must be unique.` };
+      seenSections.add(sec);
+      list.push(sec);
+    }
+    grades[grade] = list;
+  }
+  if (!seenSections.size) return { error: "Add at least one section." };
+  return { school, subjects, grades };
+}
 
 // ── Section key mapping ───────────────────────────────────────────────────────
 // students.json stores each student's plain section name (e.g. "SILANG"), but
@@ -145,29 +275,43 @@ const GRADE_STRUCTURE = {
 // Built programmatically from GRADE_STRUCTURE × SUBJECTS: every section maps
 // to an object keyed by subject (uppercased), so every student must select a
 // subject at login before a key can be resolved. Sections not listed here
-// (there shouldn't be any) pass through unchanged.
+// pass through unchanged. These are filled IN PLACE by rebuildStructure().
 const SECTION_KEY_MAP = {};
 // Every section+subject dashboard key that can ever exist (e.g. "RIZAL-MATH")
 // — used to validate admin actions before they're trusted.
 const ALL_SECTION_SUBJECT_KEYS = [];
 // key -> raw section name, the inverse of the lookup above.
 const SECTION_OF_KEY = {};
-for (const sections of Object.values(GRADE_STRUCTURE)) {
-  for (const section of sections) {
-    const entry = {};
-    for (const subject of SUBJECTS) {
-      const key = `${section}-${subject.toUpperCase()}`;
-      entry[subject.toUpperCase()] = key;
-      ALL_SECTION_SUBJECT_KEYS.push(key);
-      SECTION_OF_KEY[key] = section;
-    }
-    SECTION_KEY_MAP[section] = entry;
-  }
-}
-
 // All valid section names, used to validate any section name coming from
 // an admin action before it's trusted (persisted, broadcast, etc).
-const ALL_SECTIONS = Object.values(GRADE_STRUCTURE).flat();
+const ALL_SECTIONS = [];
+// Ordered list of section names used to build the login dropdown, in
+// grade order (not alphabetical).
+const SECTION_ORDER = [];
+
+function rebuildStructure() {
+  for (const k of Object.keys(SECTION_KEY_MAP)) delete SECTION_KEY_MAP[k];
+  for (const k of Object.keys(SECTION_OF_KEY)) delete SECTION_OF_KEY[k];
+  ALL_SECTION_SUBJECT_KEYS.length = 0;
+  ALL_SECTIONS.length = 0;
+  SECTION_ORDER.length = 0;
+  for (const sections of Object.values(GRADE_STRUCTURE)) {
+    for (const section of sections) {
+      const entry = {};
+      for (const subject of SUBJECTS) {
+        const key = `${section}-${subject.toUpperCase()}`;
+        entry[subject.toUpperCase()] = key;
+        ALL_SECTION_SUBJECT_KEYS.push(key);
+        SECTION_OF_KEY[key] = section;
+      }
+      SECTION_KEY_MAP[section] = entry;
+      ALL_SECTIONS.push(section);
+      SECTION_ORDER.push(section);
+    }
+  }
+}
+loadSchoolConfig();
+rebuildStructure();
 
 // Subject-sections (e.g. "RIZAL-MATH") a teacher has explicitly turned on
 // for students. Every subject-section is DISABLED BY DEFAULT — a brand new
@@ -466,6 +610,15 @@ function loadStudents() {
   } catch (err) {
     console.error("❌ Error loading students.json:", err.message);
     quarantineCorruptFile(STUDENTS_FILE, err);
+  }
+}
+
+function saveStudents() {
+  try {
+    atomicWriteFileSync(STUDENTS_FILE, JSON.stringify(studentList, null, 2));
+  } catch (err) {
+    console.error("❌ Failed to save students.json:", err.message);
+    throw err;
   }
 }
 
@@ -885,7 +1038,8 @@ function resolveAdminKey(raw) {
 }
 
 // ── Express ──────────────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, "public")));
+// index:false so "/" goes through servePage() below (which injects the school profile).
+app.use(express.static(path.join(__dirname, "public"), { index: false }));
 app.use(express.json());
 beacon.registerPing(app, PORT);
 
@@ -910,7 +1064,7 @@ function cleanImage(image) {
 }
 
 app.post("/api/item-image", itemImageUpload.single("image"), (req, res) => {
-  if ((req.body?.password ?? "") !== RESET_PASSWORD) {
+  if (!isAdminPassword(req.body?.password)) {
     return res.status(403).json({ ok: false, message: "Incorrect password." });
   }
   if (!req.file) {
@@ -1178,7 +1332,7 @@ function parseMcqTemplateText(rawText) {
 
 // Step 1: upload the .docx, get back a preview (nothing is saved yet).
 app.post("/api/import-item-bank-docx", mcImportUpload.single("file"), async (req, res) => {
-  if ((req.body?.password ?? "") !== RESET_PASSWORD) {
+  if (!isAdminPassword(req.body?.password)) {
     return res.status(401).json({ ok: false, message: "Incorrect password." });
   }
   if (!req.file) {
@@ -1198,7 +1352,7 @@ app.post("/api/import-item-bank-docx", mcImportUpload.single("file"), async (req
 // the dashboard; commit the approved items to the item bank.
 app.post("/api/import-item-bank-docx/confirm", (req, res) => {
   const { password, items } = req.body || {};
-  if ((password ?? "") !== RESET_PASSWORD) {
+  if (!isAdminPassword(password)) {
     return res.status(401).json({ ok: false, message: "Incorrect password." });
   }
   if (!Array.isArray(items) || items.length === 0) {
@@ -1267,8 +1421,25 @@ app.post("/api/import-item-bank-docx/confirm", (req, res) => {
   res.json({ ok: true, added, rejected, total: itemBank.length });
 });
 
-app.get("/",          (_, res) => res.sendFile(path.join(__dirname, "public/index.html")));
-app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "public/dashboard.html")));
+// The student page and dashboard get the school profile (name, year, logo,
+// grades, sections, subjects) injected at the <!--SCHOOL-CONFIG--> marker, so
+// they render the right school immediately with no flash of the wrong name.
+function publicSchool() {
+  return { ...SCHOOL, subjects: SUBJECTS, grades: GRADE_STRUCTURE };
+}
+function servePage(file) {
+  return (_, res) => {
+    let html;
+    try { html = fs.readFileSync(path.join(__dirname, "public", file), "utf8"); }
+    catch { return res.status(404).send("Page not found"); }
+    const tag = `<script>window.SCHOOL=${JSON.stringify(publicSchool()).replace(/</g, "\\u003c")};</script>`;
+    html = html.replace("<!--SCHOOL-CONFIG-->", () => tag);
+    res.set("Cache-Control", "no-store").type("html").send(html);
+  };
+}
+app.get(["/", "/index.html"],               servePage("index.html"));
+app.get(["/dashboard", "/dashboard.html"],  servePage("dashboard.html"));
+app.get("/api/school", (_, res) => res.json(publicSchool()));
 app.get("/health",    (_, res) => res.json({ ok: true, submissions: submissions.length }));
 
 // Save button in the teacher app: flush everything to disk right now.
@@ -1281,10 +1452,6 @@ app.post("/api/save-now", (req, res) => {
   const failed = flushAll();
   res.json({ ok: failed.length === 0, failed, savedAt: new Date().toISOString() });
 });
-
-// Ordered list of section names used to build the login dropdown, in
-// Grade 7 → Grade 10 order (not alphabetical), derived from GRADE_STRUCTURE.
-const SECTION_ORDER = Object.values(GRADE_STRUCTURE).flat();
 
 // Lets the student login page fetch the current grade/section/subject
 // structure instead of hardcoding it, so GRADE_STRUCTURE/SUBJECTS above stay
@@ -1378,7 +1545,7 @@ function submissionsToCsv(subs) {
 // ── CSV Export endpoint ──────────────────────────────────────────────────────
 app.get("/export-csv", (req, res) => {
   const { password } = req.query;
-  if (password !== RESET_PASSWORD) {
+  if (!isAdminPassword(password)) {
     return res.status(401).json({ error: "Incorrect password." });
   }
 
@@ -1393,7 +1560,7 @@ app.get("/export-csv", (req, res) => {
 // ── Archive CSV Export endpoint ──────────────────────────────────────────────
 app.get("/export-archive-csv", (req, res) => {
   const { password, id } = req.query;
-  if (password !== RESET_PASSWORD) {
+  if (!isAdminPassword(password)) {
     return res.status(401).json({ error: "Incorrect password." });
   }
 
@@ -1546,7 +1713,7 @@ function studentScoresToCsv(exams, students) {
 // ── Student Scores CSV Export endpoint ───────────────────────────────────────
 app.get("/export-student-scores-csv", (req, res) => {
   const { password, section } = req.query;
-  if (password !== RESET_PASSWORD) {
+  if (!isAdminPassword(password)) {
     return res.status(401).json({ error: "Incorrect password." });
   }
   const { exams, students } = buildStudentScoresReport();
@@ -2461,7 +2628,7 @@ io.on("connection", (socket) => {
   }
 
   socket.on("reset-quiz-data", ({ password, section } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("reset-failed", { message: "Incorrect password." });
     }
     performReset(section);
@@ -2473,7 +2640,7 @@ io.on("connection", (socket) => {
   // something client-side (e.g. revealing disabled subjects in the Sections
   // panel) without performing any admin action or mutating any data.
   socket.on("admin-verify-password", ({ password, context } = {}) => {
-    socket.emit("verify-password-result", { ok: password === RESET_PASSWORD, context: context || null });
+    socket.emit("verify-password-result", { ok: isAdminPassword(password), context: context || null });
   });
 
   // ── Admin: archive the current exam, then reset ─────────────────────────
@@ -2482,7 +2649,7 @@ io.on("connection", (socket) => {
   // then performs the same reset as above. Archived entries are never removed
   // by a reset, so every past exam stays retrievable.
   socket.on("admin-archive-and-reset", ({ password, name, section, examType, mergeIntoId } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("archive-failed", { message: "Incorrect password." });
     }
 
@@ -2587,7 +2754,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: list archived exams (summaries only — no full submission payload) ─
   socket.on("get-quiz-archives", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("archives-failed", { message: "Incorrect password." });
     }
     const summaries = quizArchive
@@ -2613,7 +2780,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: fetch full detail (submissions) for one archived exam ────────────
   socket.on("get-quiz-archive-detail", ({ password, id } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("archives-failed", { message: "Incorrect password." });
     }
     const entry = quizArchive.find(a => a.id === id);
@@ -2623,7 +2790,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: delete a mistaken/unwanted archive entry ──────────────────────────
   socket.on("delete-quiz-archive", ({ password, id } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("archives-failed", { message: "Incorrect password." });
     }
     const before = quizArchive.length;
@@ -2637,7 +2804,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: student scores report (Quiz / Summative / Term Exam, per student) ─
   socket.on("get-student-scores", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("student-scores-failed", { message: "Incorrect password." });
     }
     const { exams, students } = buildStudentScoresReport();
@@ -2651,7 +2818,7 @@ io.on("connection", (socket) => {
   // the quiz you've ever run stays browsable, even after you overwrite
   // realQuestions with a new set and restart the server.
   socket.on("admin-save-question-snapshot", ({ password, name, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("question-snapshot-failed", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -2676,7 +2843,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: list saved question snapshots (summaries only) ───────────────────
   socket.on("get-question-history", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("question-history-failed", { message: "Incorrect password." });
     }
     const summaries = questionHistory
@@ -2687,7 +2854,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: fetch the full question text/choices for one snapshot ────────────
   socket.on("get-question-history-detail", ({ password, id } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("question-history-failed", { message: "Incorrect password." });
     }
     const entry = questionHistory.find(h => h.id === id);
@@ -2697,7 +2864,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: delete a mistaken/unwanted question snapshot ─────────────────────
   socket.on("delete-question-history", ({ password, id } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("question-history-failed", { message: "Incorrect password." });
     }
     const before = questionHistory.length;
@@ -2711,7 +2878,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: Item Bank — list every item in the pool ───────────────────────────
   socket.on("admin-get-item-bank", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("item-bank-error", { message: "Incorrect password." });
     }
     // Newest first: the most recently added/uploaded items are listed at the top.
@@ -2776,7 +2943,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: Item Bank — add one item (MC, identification, or matching) ────────
   socket.on("admin-add-item-bank-item", ({ password, topic, competency, passage, image, type, q, choices, correct, answer, pairs } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("item-bank-error", { message: "Incorrect password." });
     }
     const validated = validateItemBankFields({ type, q, choices, correct, answer, pairs });
@@ -2803,7 +2970,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: Item Bank — edit an existing item in the pool ─────────────────────
   socket.on("admin-update-item-bank-item", ({ password, id, topic, competency, passage, image, type, q, choices, correct, answer, pairs } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("item-bank-error", { message: "Incorrect password." });
     }
     const item = itemBank.find(it => it.id === id);
@@ -2836,7 +3003,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: Item Bank — delete an item from the pool ───────────────────────────
   socket.on("admin-delete-item-bank-item", ({ password, id } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("item-bank-error", { message: "Incorrect password." });
     }
     const before = itemBank.length;
@@ -2850,7 +3017,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: Item Bank — delete every item under a given topic ──────────────────
   socket.on("admin-delete-item-bank-topic", ({ password, topic } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("item-bank-error", { message: "Incorrect password." });
     }
     const topicText = typeof topic === "string" ? topic.trim() : "";
@@ -2876,7 +3043,7 @@ io.on("connection", (socket) => {
   // For backward compatibility it also accepts a flat string array (uses `count`
   // as the total drawn across those topics combined) or a single `topic` string.
   socket.on("admin-generate-quiz-from-bank", ({ password, count, topic, topics, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("quiz-generate-error", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -2988,7 +3155,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: Restore the original default question set ─────────────────────────
   socket.on("admin-restore-default-questions", ({ password, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("quiz-generate-error", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -3008,7 +3175,7 @@ io.on("connection", (socket) => {
   // key's exam. Submissions are NOT touched. Refused while students are mid-exam
   // on that key, since it would change their question count.
   socket.on("admin-load-exam-from-archive", ({ password, sectionKey: rawKey, archiveId } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("quiz-generate-error", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -3039,7 +3206,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: kick/remove a live student ─────────────────────────────────────
   socket.on("admin-kick-student", ({ password, studentId } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("kick-failed", { message: "Incorrect password." });
     }
 
@@ -3228,7 +3395,7 @@ io.on("connection", (socket) => {
   // ── Admin: fetch the full log of student questions (loads when the
   // "Questions" panel is opened on the dashboard) ─────────────────────────
   socket.on("get-student-questions", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("student-questions-failed", { message: "Incorrect password." });
     }
     const sorted = studentQuestions.slice().sort((a, b) => b.sentAt - a.sentAt);
@@ -3274,7 +3441,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: get full results (with answer detail) ─────────────────────────
   socket.on("get-full-results", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("full-results-error", { message: "Incorrect password." });
     }
     socket.emit("full-results", { submissions });
@@ -3282,7 +3449,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: toggle quiz open/closed ──────────────────────────────────────
   socket.on("admin-toggle-quiz", ({ password, open, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("toggle-quiz-failed", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -3296,7 +3463,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: set exam type (what students see: "Quiz", "Summative Test", or "Term Examination") ─
   socket.on("admin-set-exam-type", ({ password, examType, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("set-exam-type-failed", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -3314,7 +3481,7 @@ io.on("connection", (socket) => {
   // when they logged in (captured on their session as durationMs), so
   // changing this never cuts short or extends a test already in progress.
   socket.on("admin-set-quiz-duration", ({ password, minutes, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("set-quiz-duration-failed", { message: "Incorrect password." });
     }
     const n = Number(minutes);
@@ -3335,7 +3502,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: toggle whether students can see their score/review ────────────
   socket.on("admin-toggle-results", ({ password, visible } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("toggle-results-failed", { message: "Incorrect password." });
     }
     resultsVisible = Boolean(visible);
@@ -3354,6 +3521,145 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ── Admin: School & Roster setup ─────────────────────────────────────────
+  // One screen edits the school profile (name, year, logo...), the grade
+  // levels / sections / subjects, and the student list. Saved together so a
+  // renamed section and its students can never get out of step.
+  socket.on("admin-get-school-setup", ({ password } = {}) => {
+    if (!isAdminPassword(password)) return socket.emit("school-setup-failed", { message: "Incorrect password." });
+    socket.emit("school-setup-data", {
+      school: SCHOOL, subjects: SUBJECTS, grades: GRADE_STRUCTURE,
+      students: studentList.map(s => ({ id: s.id, name: s.name, section: s.section, gender: s.gender || "" })),
+      defaultPassword: usingDefaultPassword(),
+    });
+  });
+
+  socket.on("admin-change-password", ({ password, newPassword } = {}) => {
+    const fail = (message) => socket.emit("school-setup-failed", { message });
+    if (!isAdminPassword(password)) return fail("Incorrect password.");
+    if (process.env.RESET_PASSWORD) return fail("The password is set by the RESET_PASSWORD environment variable and can't be changed here.");
+    const np = String(newPassword == null ? "" : newPassword);
+    if (np.length < 6) return fail("The new password must be at least 6 characters.");
+    const salt = crypto.randomBytes(16).toString("hex");
+    const next = { salt, hash: hashPassword(np, salt) };
+    try { atomicWriteFileSync(ADMIN_FILE, JSON.stringify(next)); }
+    catch (err) { return fail("Couldn't save the password: " + err.message); }
+    adminAuth = next;
+    console.log("🔑 Admin password changed.");
+    socket.emit("admin-password-changed", {});
+  });
+
+  socket.on("admin-save-school-setup", ({ password, school, subjects, grades, students, renames } = {}) => {
+    const fail = (message) => socket.emit("school-setup-failed", { message });
+    if (!isAdminPassword(password)) return fail("Incorrect password.");
+
+    const clean = sanitizeSchoolSetup({ school, subjects, grades });
+    if (clean.error) return fail(clean.error);
+    const newSections = new Set(Object.values(clean.grades).flat());
+
+    // Renames: { sections: {OLD: NEW}, subjects: {Old: New} } — only honour
+    // ones that point from a current name to a name in the new setup.
+    const secRen = {}, subRen = {};
+    for (const [from, to] of Object.entries((renames && renames.sections) || {})) {
+      const f = String(from).trim().toUpperCase(), t = String(to).trim().toUpperCase();
+      if (f !== t && ALL_SECTIONS.includes(f) && newSections.has(t)) secRen[f] = t;
+    }
+    for (const [from, to] of Object.entries((renames && renames.subjects) || {})) {
+      const f = SUBJECTS.find(x => x.toUpperCase() === String(from).trim().toUpperCase());
+      const t = clean.subjects.find(x => x.toUpperCase() === String(to).trim().toUpperCase());
+      if (f && t && f.toUpperCase() !== t.toUpperCase()) subRen[f.toUpperCase()] = t.toUpperCase();
+    }
+    if (new Set(Object.values(secRen)).size !== Object.keys(secRen).length ||
+        new Set(Object.values(subRen)).size !== Object.keys(subRen).length) {
+      return fail("Two renames point to the same name.");
+    }
+    if (Object.keys(secRen).length || Object.keys(subRen).length) {
+      const live = [...activeSessions.values()].some(v => v.status !== "disconnected");
+      if (live || submissions.length) {
+        return fail("Renaming a section or subject needs a clean slate: archive & reset the current results and wait for students to finish first. (Adding/removing is fine anytime.)");
+      }
+    }
+
+    // Students
+    if (!Array.isArray(students)) return fail("Student list is missing.");
+    const oldById = new Map(studentList.map(s => [s.id, s]));
+    const usedIds = new Set();
+    const seen = new Set();
+    const outStudents = [];
+    const pending = [];
+    let skippedDuplicates = 0;
+    for (const st of students) {
+      const name = cleanText(st && st.name, 80).toUpperCase();
+      const section = cleanText(st && st.section, 40).toUpperCase();
+      if (!name) continue;
+      if (!newSections.has(section)) return fail(`Student "${name}" is in section "${section || "(none)"}", which isn't in the section list.`);
+      const k = section + "|" + name;
+      if (seen.has(k)) { skippedDuplicates++; continue; }
+      seen.add(k);
+      const g = String((st && st.gender) || "").trim().toLowerCase();
+      const gender = g.startsWith("m") ? "Male" : g.startsWith("f") ? "Female" : "";
+      const rec = { id: null, name, section, gender };
+      const wantId = st && st.id != null ? String(st.id) : "";
+      if (wantId && oldById.has(wantId) && !usedIds.has(wantId)) { rec.id = wantId; usedIds.add(wantId); }
+      else pending.push(rec);
+      outStudents.push(rec);
+    }
+    // New students get the next free ID in the same style as the existing ones (e.g. 2025-0042 -> 2025-0043).
+    let prefix = "", width = 4, max = 0;
+    for (const id of [...oldById.keys(), ...usedIds]) {
+      const m = /^(.*?)(\d+)$/.exec(String(id));
+      if (m && Number(m[2]) >= max) { max = Number(m[2]); prefix = m[1]; width = m[2].length; }
+    }
+    for (const rec of pending) {
+      let id;
+      do { max++; id = prefix + String(max).padStart(width, "0"); } while (usedIds.has(id) || oldById.has(id));
+      rec.id = id; usedIds.add(id);
+    }
+
+    // ── Apply (everything validated above; nothing has been changed yet) ──
+    const oldSectionOf = { ...SECTION_OF_KEY };
+    const mapKey = (oldKey) => {
+      const sec = oldSectionOf[oldKey];
+      if (!sec) return null;
+      const subjUpper = oldKey.slice(sec.length + 1);
+      const ns = secRen[sec] || sec;
+      const nsub = subRen[subjUpper] || subjUpper;
+      return `${ns}-${nsub}`;
+    };
+    const oldStudentCount = studentList.length;
+
+    SCHOOL = clean.school;
+    SUBJECTS = clean.subjects;
+    GRADE_STRUCTURE = clean.grades;
+    rebuildStructure();
+
+    ENABLED_SECTIONS = [...new Set(ENABLED_SECTIONS.map(k => mapKey(k) || k))].filter(k => ALL_SECTION_SUBJECT_KEYS.includes(k));
+    const movedExams = [];
+    for (const [k, e] of examsByKey) {
+      const nk = mapKey(k);
+      if (nk && nk !== k) movedExams.push([k, nk, e]);
+    }
+    for (const [k] of movedExams) examsByKey.delete(k);
+    for (const [, nk, e] of movedExams) examsByKey.set(nk, e);
+
+    studentList = outStudents;
+
+    try {
+      saveSchoolConfig(); saveStudents(); saveEnabledSections(); saveExams();
+    } catch (err) {
+      return fail("Changes were applied but could not be written to disk: " + err.message);
+    }
+
+    console.log(`🏫 School setup saved: "${SCHOOL.name}" ${SCHOOL.year} — ${ALL_SECTIONS.length} sections, ${SUBJECTS.length} subjects, ${studentList.length} students`);
+    io.emit("enabled-sections-update", ENABLED_SECTIONS);
+    broadcastExamStatus();
+    broadcastRoster();
+    io.emit("school-config-changed", publicSchool());
+    socket.emit("school-setup-saved", {
+      students: studentList.length, previousStudents: oldStudentCount, skippedDuplicates,
+    });
+  });
+
   // ── Admin: enable/disable a subject-section ──────────────────────────────
   // Enable/disable is per subject-section (e.g. "RIZAL-MATH"), not per whole
   // section — every subject-section starts disabled by default, and a
@@ -3363,7 +3669,7 @@ io.on("connection", (socket) => {
   // and blocks any login attempt for it, even if the request is sent
   // directly to the socket. Re-enabling reverses both.
   socket.on("admin-toggle-section", ({ password, sectionKey: rawSectionKey, enabled } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("section-toggle-failed", { message: "Incorrect password." });
     }
     const normalizedKey = String(rawSectionKey || "").trim().toUpperCase();
@@ -3392,7 +3698,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: get current item point values (for the Points editor) ─────────
   socket.on("admin-get-points", ({ password, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("points-error", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -3408,7 +3714,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: set item point values ──────────────────────────────────────────
   socket.on("admin-set-points", ({ password, points, sectionKey: rawKey } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("points-error", { message: "Incorrect password." });
     }
     const key = resolveAdminKey(rawKey);
@@ -3450,7 +3756,7 @@ io.on("connection", (socket) => {
 
   // ── Admin: get absent (not-started) students ─────────────────────────────
   socket.on("get-absent-students", ({ password } = {}) => {
-    if (password !== RESET_PASSWORD) {
+    if (!isAdminPassword(password)) {
       return socket.emit("absent-students-error", { message: "Incorrect password." });
     }
     const startedIds = new Set([
@@ -3833,6 +4139,8 @@ function flushAll() {
     ["question-history.json", saveQuestionHistory],
     ["student-questions.json", saveStudentQuestions],
     ["exam-type.json", saveExamType],
+    ["students.json", saveStudents],
+    ["school.json", saveSchoolConfig],
   ];
   const failed = [];
   for (const [name, fn] of steps) {

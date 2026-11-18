@@ -13,6 +13,18 @@ license.key) lives in ONE data folder that belongs to this app:
 It is NOT inside the program files, so updating or reinstalling the app never erases it.
 In the app: **File → Open Data Folder** takes you straight there.
 
+## School & Roster (using this app at another school)
+Click **🏫 School & Roster** in the dashboard (admin password required). There you can change:
+- **School:** name, school year, location, region/division (item-analysis printouts) and the logo.
+- **Sections & Subjects:** grade levels, section names and subjects.
+- **Students:** add / edit / remove, paste a list, or import a .csv / .xlsx / .txt file (Name, Section, Gender).
+
+Everything is saved in `school.json` and `students.json` in the data folder. Renaming a section or subject keeps its
+students, enabled/disabled state and exams, but needs a clean slate first (archive & reset current results).
+Old archived results keep the names they were saved under.
+The **admin password** is also changed there (stored hashed in `admin.json`; until you change it the old built-in password still works).
+Note: the license is still tied to each computer, so a new school's computer must be approved first.
+
 ## Safety copies
 - **Save button:** the green **💾 Save** button at the top of the dashboard (or **File → Save Now**, Cmd+S) writes everything to disk right away and keeps a dated copy in Documents/GNHS Quiz Backups/Saved (last 30 kept). Use it after each quiz.
 - **Automatic:** every time you quit, the app keeps a copy in `auto-backups` (last 10 kept).

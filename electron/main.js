@@ -130,31 +130,36 @@ function startServer() {
   }
 }
 
-// Shown when this computer is not approved. Returns true if we should try
-// starting the server again, false if the app is quitting.
-async function showLicenseProblem() {
+// ── License ──────────────────────────────────────────────────────────────────
+// Runs the license check WITHOUT starting the server. true = this computer is approved.
+function licenseOk() {
   const lic = require("../server/license-check.js");
-  const id = lic.getMachineId();
-  for (;;) {
-    const r = await dialog.showMessageBox({
-      type: "warning", title: "License needed", defaultId: 0, cancelId: 4,
-      buttons: ["Copy machine ID", "Check again", "Open data folder", "Import old SERVER folder…", "Quit"],
-      message: "DI KA PWED mogamit ane ug wai pananghid sa tag.iya",
-      detail:
-        `Machine ID:\n${id}\n\n` +
-        "1) Click \"Copy machine ID\" and send it to Julius Celio.\n" +
-        "2) After he approves this computer, connect to the internet and click \"Check again\".\n\n" +
-        "If this computer already ran the quiz server before, you can instead import your old SERVER folder (its license.key comes along).",
-    });
-    const pick = r.response;
-    if (pick === 0) clipboard.writeText(id);
-    else if (pick === 1) { await lic.refreshAllowlist(); return true; }
-    else if (pick === 2) shell.openPath(DATA_DIR);
-    else if (pick === 3) {
-      const src = chooseOldFolder("Choose your old SERVER folder");
-      if (src) { importFrom(src); return true; }
-    } else { app.exit(0); return false; }
+  const realExit = process.exit;
+  process.exit = () => { throw new ExitSignal("license"); };
+  try {
+    lic.checkLicense();
+    return true;
+  } catch (e) {
+    if (e instanceof ExitSignal) return false;
+    throw e;
+  } finally {
+    process.exit = realExit;
   }
+}
+
+// Shown when this computer is not approved: ONE message, ONE OK button, then the app closes.
+function showNotAllowedAndQuit() {
+  const id = require("../server/license-check.js").getMachineId();
+  dialog.showMessageBoxSync({
+    type: "warning",
+    title: "Not allowed",
+    buttons: ["OK"],
+    defaultId: 0,
+    noLink: true,
+    message: "DI KA PWED mogamit ane ug wai pananghid sa tag.iya",
+    detail: `Machine ID: ${id}`,   // delete this line if you don't want the ID shown
+  });
+  app.exit(0);
 }
 
 function waitForServer(ms = 20000) {
@@ -356,23 +361,20 @@ process.on("uncaughtException", (err) => {
 });
 
 app.whenReady().then(async () => {
+  // 1) Check the license FIRST, before any other dialog or menu appears.
+  let ok = licenseOk();
+  if (!ok) {
+    // Maybe Julius just approved this computer: download the newest list and try once more.
+    await require("../server/license-check.js").refreshAllowlist();
+    ok = licenseOk();
+  }
+  // Not approved: show ONE popup with a single OK button, then close. Nothing else is reachable.
+  if (!ok) { showNotAllowedAndQuit(); return; }
+
+  // 2) Approved: normal startup.
   buildMenu();
   runStartupImport();
-
-  // 1) Try to start. The license check inside the server decides if this computer is approved.
-  let started = startServer();
-
-  // 2) Not approved? Maybe Julius just approved it: download the newest list and try once more.
-  if (!started) {
-    await require("../server/license-check.js").refreshAllowlist();
-    started = startServer();
-  }
-
-  // 3) Still not approved: show the "License needed" box until approved or the teacher quits.
-  while (!started) {
-    if (!(await showLicenseProblem())) return;
-    started = startServer();
-  }
+  if (!startServer()) { showNotAllowedAndQuit(); return; }
 
   const up = await waitForServer();
   if (!up) {

@@ -187,6 +187,13 @@ function notAllowedHtml(id) {
   }
   .idbox small{display:block;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#fca5a5;margin-bottom:4px}
   .idbox code{font-family:Consolas,"SF Mono",Menlo,monospace;font-size:17px;letter-spacing:.06em;color:#fde68a;user-select:text;-webkit-user-select:text}
+  .idrow{display:flex;align-items:center;justify-content:center;gap:12px}
+  .idrow .copy{
+    -webkit-app-region:no-drag;margin:0;width:auto;padding:8px 16px;border-radius:8px;
+    font-size:13px;letter-spacing:.08em;white-space:nowrap;
+    background:linear-gradient(180deg,#fbbf24,#d97706);color:#3b0a0a;box-shadow:0 3px 10px rgba(251,191,36,.35);
+  }
+  .idrow .copy.done{background:linear-gradient(180deg,#4ade80,#16a34a);color:#052e16}
   button{
     -webkit-app-region:no-drag;margin-top:auto;width:100%;padding:14px;
     border:0;border-radius:12px;cursor:pointer;
@@ -211,12 +218,19 @@ function notAllowedHtml(id) {
     </div>
     <div class="badge">NOT ALLOWED</div>
     <h1><b>DI KA PWED</b> mogamit ane<br>ug wai pananghid sa tag.iya</h1>
-    <div class="idbox"><small>Machine ID</small><code>${id}</code></div>
+    <div class="idbox">
+      <small>Machine ID</small>
+      <div class="idrow">
+        <code>${id}</code>
+        <button id="copy" class="copy" type="button">COPY</button>
+      </div>
+    </div>
     <button id="ok" autofocus>OK</button>
   </div>
   <script>
     const done = () => window.close();
     document.getElementById("ok").addEventListener("click", done);
+    document.getElementById("copy").addEventListener("click", () => { location.href = "gnhs://copy"; });
     window.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "Escape") done(); });
   </script>
 </body></html>`;
@@ -225,13 +239,25 @@ function notAllowedHtml(id) {
 function showNotAllowedAndQuit() {
   const id = require("../server/license-check.js").getMachineId();
   const w = new BrowserWindow({
-    width: 480, height: 470,
+    width: 500, height: 490,
     frame: false, resizable: false, minimizable: false, maximizable: false,
     alwaysOnTop: true, center: true, show: false,
     backgroundColor: "#3b0a0a", title: "Not allowed",
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   w.setMenu(null);
+  // The COPY button asks the app (not the web page) to put the ID on the clipboard.
+  w.webContents.on("will-navigate", (e, url) => {
+    if (!url.startsWith("gnhs://")) return;
+    e.preventDefault();
+    if (url.startsWith("gnhs://copy")) {
+      clipboard.writeText(id);
+      w.webContents.executeJavaScript(
+        `(function(){var b=document.getElementById("copy");b.textContent="COPIED ✓";b.classList.add("done");` +
+        `setTimeout(function(){b.textContent="COPY";b.classList.remove("done");},2000);})();`
+      ).catch(() => {});
+    }
+  });
   w.once("ready-to-show", () => { w.show(); w.focus(); });
   w.on("closed", () => app.exit(0));   // OK, Enter, Esc or Alt+F4: the app closes, nothing else opens
   w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(notAllowedHtml(id)));

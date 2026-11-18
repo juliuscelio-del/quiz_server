@@ -1,0 +1,26 @@
+name: Publish allowlist
+
+# Whenever the signed list of approved machines changes, upload it to a permanent
+# release called "allowlist". Every installed app downloads it from there.
+on:
+  push:
+    branches: [main]
+    paths: ['server/allowlist.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload to the "allowlist" release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view allowlist >/dev/null 2>&1 || \
+            gh release create allowlist --prerelease --title "Allowlist" \
+              --notes "Signed list of approved machines. Not an app update."
+          gh release upload allowlist server/allowlist.json --clobber

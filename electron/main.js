@@ -148,18 +148,93 @@ function licenseOk() {
 }
 
 // Shown when this computer is not approved: ONE message, ONE OK button, then the app closes.
+function notAllowedHtml(id) {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Not allowed</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    background:radial-gradient(circle at 50% 0%,#7f1d1d 0%,#3b0a0a 45%,#1a0505 100%);
+    color:#fff;display:flex;align-items:center;justify-content:center;
+    -webkit-app-region:drag;user-select:none;
+  }
+  .card{
+    width:100%;height:100%;padding:34px 36px 28px;text-align:center;
+    border:2px solid #ef4444;border-radius:0;
+    box-shadow:inset 0 0 60px rgba(239,68,68,.25);
+    display:flex;flex-direction:column;align-items:center;
+    animation:shake .5s ease-out;
+  }
+  .icon{
+    width:96px;height:96px;border-radius:50%;
+    background:linear-gradient(145deg,#fbbf24,#f59e0b);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 0 0 rgba(251,191,36,.6);
+    animation:pulse 1.8s infinite;
+  }
+  .icon svg{width:56px;height:56px}
+  .badge{
+    margin-top:18px;padding:5px 16px;border-radius:999px;
+    background:#ef4444;font-weight:800;font-size:13px;letter-spacing:.22em;
+  }
+  h1{margin-top:16px;font-size:25px;line-height:1.3;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.5)}
+  h1 b{color:#fbbf24}
+  .idbox{
+    margin-top:22px;width:100%;padding:12px 14px;border-radius:12px;
+    background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);
+  }
+  .idbox small{display:block;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#fca5a5;margin-bottom:4px}
+  .idbox code{font-family:Consolas,"SF Mono",Menlo,monospace;font-size:17px;letter-spacing:.06em;color:#fde68a;user-select:text;-webkit-user-select:text}
+  button{
+    -webkit-app-region:no-drag;margin-top:auto;width:100%;padding:14px;
+    border:0;border-radius:12px;cursor:pointer;
+    font-size:17px;font-weight:800;letter-spacing:.1em;color:#fff;
+    background:linear-gradient(180deg,#ef4444,#b91c1c);
+    box-shadow:0 6px 18px rgba(239,68,68,.45);
+    transition:transform .1s,filter .15s;
+  }
+  button:hover{filter:brightness(1.12)}
+  button:active{transform:scale(.98)}
+  button:focus-visible{outline:3px solid #fde68a;outline-offset:2px}
+  @keyframes pulse{70%{box-shadow:0 0 0 22px rgba(251,191,36,0)}100%{box-shadow:0 0 0 0 rgba(251,191,36,0)}}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px)}40%{transform:translateX(9px)}60%{transform:translateX(-6px)}80%{transform:translateX(4px)}}
+  @media (prefers-reduced-motion:reduce){.card,.icon{animation:none}}
+</style></head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#7f1d1d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.3" r=".6" fill="#7f1d1d"/>
+      </svg>
+    </div>
+    <div class="badge">NOT ALLOWED</div>
+    <h1><b>DI KA PWED</b> mogamit ane<br>ug wai pananghid sa tag.iya</h1>
+    <div class="idbox"><small>Machine ID</small><code>${id}</code></div>
+    <button id="ok" autofocus>OK</button>
+  </div>
+  <script>
+    const done = () => window.close();
+    document.getElementById("ok").addEventListener("click", done);
+    window.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "Escape") done(); });
+  </script>
+</body></html>`;
+}
+
 function showNotAllowedAndQuit() {
   const id = require("../server/license-check.js").getMachineId();
-  dialog.showMessageBoxSync({
-    type: "warning",
-    title: "Not allowed",
-    buttons: ["OK"],
-    defaultId: 0,
-    noLink: true,
-    message: "DI KA PWED mogamit ane ug wai pananghid sa tag.iya",
-    detail: `Machine ID: ${id}`,   // delete this line if you don't want the ID shown
+  const w = new BrowserWindow({
+    width: 480, height: 470,
+    frame: false, resizable: false, minimizable: false, maximizable: false,
+    alwaysOnTop: true, center: true, show: false,
+    backgroundColor: "#3b0a0a", title: "Not allowed",
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
-  app.exit(0);
+  w.setMenu(null);
+  w.once("ready-to-show", () => { w.show(); w.focus(); });
+  w.on("closed", () => app.exit(0));   // OK, Enter, Esc or Alt+F4: the app closes, nothing else opens
+  w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(notAllowedHtml(id)));
 }
 
 function waitForServer(ms = 20000) {

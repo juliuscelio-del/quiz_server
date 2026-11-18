@@ -1,9 +1,12 @@
 {
-  "issuedAt": "2026-11-18T00:54:38.226Z",
+  "issuedAt": "2026-11-18T02:26:01.511Z",
   "machines": [
     {
       "id": "349aae95b8fff03a7234418b"
+    },
+    {
+      "id": "c85f0e0821fa61c400646b36"
     }
   ],
-  "sig": "WCw7E69jOanGhF0j6WlCMwYQIf3/+N7CFOr9ECpuPNceR7gboMHJ0JT9RvNFOLjy8NOCadHSYrDamXckBSXJCw=="
+  "sig": "GhPcpXDEYbAPiGNWWnrDY2J8qL4JhNAZKL6Uaq8iHuSE+dry/TYJYD9FZy3K+ayrDN/a/OjqWKHTrlyiH8ITAw=="
 }

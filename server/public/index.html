@@ -254,6 +254,110 @@
   .btn-secondary:active { transform: scale(.98); }
   .btn-secondary:disabled { border-color: var(--muted); color: var(--muted); cursor: not-allowed; opacity: .7; }
 
+  /* ── Login screen: neumorphic fields + button (login card only) ── */
+  .login-card {
+    --neu-surface: #e8edf4;
+    --neu-dark: rgba(163,177,198,.70);
+    --neu-light: #ffffff;
+    --neu-blue: #1e6fe0;
+    background: var(--neu-surface);
+  }
+  .login-card select,
+  .login-card input[type=text],
+  .login-card input[type=password] {
+    background-color: var(--neu-surface);
+    border: none;
+    border-radius: 18px;
+    padding: 18px 22px;
+    margin-bottom: 22px;
+    color: #5b6575;
+    font-weight: 500;
+    box-shadow:
+      inset 6px 6px 12px var(--neu-dark),
+      inset -6px -6px 12px var(--neu-light);
+    transition: box-shadow .25s ease, color .2s;
+  }
+  .login-card select { padding-right: 48px; background-position: right 20px center; }
+  .login-card select:focus,
+  .login-card input[type=text]:focus,
+  .login-card input[type=password]:focus {
+    background-color: var(--neu-surface);
+    border: none;
+    box-shadow:
+      inset 7px 7px 14px var(--neu-dark),
+      inset -7px -7px 14px var(--neu-light),
+      0 0 0 2px rgba(30,111,224,.30);
+  }
+  .login-card select:disabled {
+    opacity: .65;
+    box-shadow:
+      inset 4px 4px 8px var(--neu-dark),
+      inset -4px -4px 8px var(--neu-light);
+  }
+  .login-card .btn-primary {
+    background: var(--neu-surface);
+    color: var(--neu-blue);
+    border: none;
+    border-radius: 18px;
+    padding: 18px;
+    margin-top: 8px;
+    font-size: .9rem;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    box-shadow:
+      8px 8px 18px var(--neu-dark),
+      -8px -8px 18px var(--neu-light);
+    transition: box-shadow .2s ease, color .2s;
+  }
+  .login-card .btn-primary:hover {
+    opacity: 1;
+    transform: none;
+    color: #1558b8;
+    box-shadow:
+      10px 10px 22px var(--neu-dark),
+      -10px -10px 22px var(--neu-light);
+  }
+  .login-card .btn-primary:active {
+    transform: none;
+    box-shadow:
+      inset 6px 6px 12px var(--neu-dark),
+      inset -6px -6px 12px var(--neu-light);
+  }
+  .login-card .btn-primary:disabled {
+    background: var(--neu-surface);
+    color: #8b95a5;
+    opacity: .65;
+    cursor: not-allowed;
+    box-shadow:
+      inset 4px 4px 8px var(--neu-dark),
+      inset -4px -4px 8px var(--neu-light);
+  }
+
+  /* ── Login card + logo: neumorphic ── */
+  .login-card {
+    background: linear-gradient(145deg, #eef2f8, #e3e8f0);
+    border-radius: 30px;
+    outline: none;
+    box-shadow:
+      0 30px 70px rgba(8,18,36,.55),
+      inset 3px 3px 8px rgba(255,255,255,.9),
+      inset -3px -3px 8px rgba(163,177,198,.35);
+  }
+  .login-card::before { display: none; }
+  .login-crest {
+    width: 104px; height: 104px;
+    padding: 9px;
+    margin: 0 auto 18px;
+    background: linear-gradient(145deg, #eef2f8, #e1e6ee);
+    box-shadow:
+      8px 8px 18px var(--neu-dark),
+      -8px -8px 18px var(--neu-light);
+  }
+  .login-crest img { border-radius: 50%; }
+  .login-divider { background: rgba(163,177,198,.8); box-shadow: 0 1px 0 #fff; }
+  .login-divider::before, .login-divider::after { background: rgba(163,177,198,.9); }
+
   /* ── Quiz Layout ── */
   #quiz-screen { display: none; }
   .quiz-header {

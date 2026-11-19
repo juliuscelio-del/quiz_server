@@ -164,47 +164,47 @@
     display: flex; flex-direction: column; align-items: stretch;
     padding: 0 22px;
   }
-  .hdr-scroll { padding: 6px 4px 18px; }
-  .hdr-top { display: flex; flex-direction: column; align-items: stretch; gap: 18px; padding: 22px 0 6px; }
+  .hdr-scroll { padding: 2px 8px 8px; }
+  .hdr-top { display: flex; flex-direction: column; align-items: stretch; gap: clamp(5px,.95vh,12px); padding: clamp(7px,1.2vh,16px) 0 0; }
 
   /* identity */
-  .school-identity { display: flex; align-items: center; gap: 14px; }
+  .school-identity { display: flex; align-items: center; gap: 12px; }
   .logo-disc {
-    flex: none; width: 76px; height: 76px; border-radius: 50%;
-    background: var(--neu-bg); box-shadow: var(--neu-raise-md);
+    flex: none; width: clamp(38px,4.7vh,60px); height: clamp(38px,4.7vh,60px); border-radius: 50%;
+    background: var(--neu-bg); box-shadow: var(--neu-raise-sm);
     display: flex; align-items: center; justify-content: center;
   }
   .school-logo-img {
-    width: 58px; height: 58px; border-radius: 50%; object-fit: cover;
+    width: 78%; height: 78%; border-radius: 50%; object-fit: cover;
     box-shadow: inset 2px 2px 5px rgba(0,0,0,.18); transition: transform .25s;
   }
   .school-logo-img:hover { transform: scale(1.06); }
   .school-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: left; }
-  .school-name { font-size: .86rem; font-weight: 700; color: var(--neu-text); letter-spacing: .07em; text-transform: uppercase; line-height: 1.25; }
-  .school-sub  { font-size: .76rem; color: var(--neu-muted); line-height: 1.25; }
+  .school-name { font-size: clamp(.64rem,1.35vh,.84rem); font-weight: 700; color: var(--neu-text); letter-spacing: .07em; text-transform: uppercase; line-height: 1.25; }
+  .school-sub  { font-size: clamp(.58rem,1.15vh,.74rem); color: var(--neu-muted); line-height: 1.25; }
 
-  .hdr-title-block { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .hdr-title-block { text-align: center; display: flex; flex-direction: column; align-items: center; gap: clamp(5px,1vh,10px); }
   .hdr-title-block h1 {
-    font-size: 1.32rem; font-weight: 700; color: var(--neu-text); line-height: 1.2;
+    font-size: clamp(.92rem,2vh,1.2rem); font-weight: 700; color: var(--neu-text); line-height: 1.2;
     display: flex; align-items: center; gap: 10px; letter-spacing: 0;
   }
   .chip {
     flex: none; display: inline-flex; align-items: center; justify-content: center;
-    width: 38px; height: 38px; border-radius: 50%; background: var(--neu-bg);
-    box-shadow: var(--neu-inset-md); color: var(--accent);
+    width: clamp(24px,2.9vh,32px); height: clamp(24px,2.9vh,32px); border-radius: 50%; background: var(--neu-bg);
+    box-shadow: var(--neu-inset-sm); color: var(--accent);
   }
-  .chip::before { content: ""; width: 19px; height: 19px; background: currentColor; -webkit-mask: var(--i-pencil) center/contain no-repeat; mask: var(--i-pencil) center/contain no-repeat; }
+  .chip::before { content: ""; width: 52%; height: 52%; background: currentColor; -webkit-mask: var(--i-pencil) center/contain no-repeat; mask: var(--i-pencil) center/contain no-repeat; }
 
   .hdr-meta { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; }
   .conn-indicator {
-    display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
-    background: var(--neu-bg); box-shadow: var(--neu-inset-md); font-size: .72rem; color: var(--neu-muted); font-weight: 500;
+    display: inline-flex; align-items: center; gap: 7px; padding: clamp(4px,.8vh,8px) 12px; border-radius: 999px;
+    background: var(--neu-bg); box-shadow: var(--neu-inset-sm); font-size: .68rem; color: var(--neu-muted); font-weight: 500;
   }
   .conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #1f9d5b; box-shadow: 0 0 6px #1f9d5b; animation: blink 2.4s ease-in-out infinite; flex: none; }
   .conn-dot.off { background: #d23b45; box-shadow: 0 0 6px #d23b45; animation: none; }
   #hdr-quiz-tag {
-    padding: 8px 15px; border-radius: 999px; background: var(--neu-bg); box-shadow: var(--neu-raise-sm);
-    font-size: .72rem; font-weight: 700; letter-spacing: .08em; color: var(--accent);
+    padding: clamp(4px,.8vh,8px) 13px; border-radius: 999px; background: var(--neu-bg); box-shadow: var(--neu-raise-sm);
+    font-size: .68rem; font-weight: 700; letter-spacing: .08em; color: var(--accent);
   }
   #hdr-quiz-tag[data-state="locked"] { color: var(--bad); }
   #hdr-quiz-tag[data-state="open"]   { color: var(--ok); }
@@ -214,44 +214,45 @@
   .hdr-right .tile { width: 100%; }
 
   /* toolbar groups = raised cards */
-  .hdr-toolbar { display: flex; flex-direction: column; gap: 26px; padding: 18px 0 6px; }
+  .hdr-toolbar { display: flex; flex-direction: column; gap: clamp(7px,1.25vh,20px); padding: clamp(6px,1.1vh,14px) 0 2px; }
   .tb-group {
-    display: flex; flex-direction: column; gap: 16px;
-    background: var(--neu-bg); border-radius: 28px; padding: 20px 14px 18px;
-    box-shadow: var(--neu-raise-lg);
+    display: flex; flex-direction: column; gap: clamp(5px,.85vh,11px);
+    background: var(--neu-bg); border-radius: 22px; padding: clamp(7px,1.05vh,14px) 11px clamp(8px,1.15vh,14px);
+    box-shadow: var(--neu-raise-md);
   }
-  .tb-label { text-align: center; font-size: .74rem; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--neu-text); line-height: 1; }
+  .tb-label { text-align: center; font-size: clamp(.6rem,1.2vh,.72rem); font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--neu-text); line-height: 1; }
   .tb-group.tb-danger .tb-label { color: var(--neu-text); }
-  .tb-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .tb-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(5px,.8vh,10px); }
 
   /* tiles (every sidebar button) — icon chip is drawn with ::before/::after so
      JS can freely change the button's text without destroying it */
   .tile {
-    --chip: 36px; --ic-color: var(--accent);
+    --chip: clamp(22px,2.9vh,30px); --ic-color: var(--accent);
+    --tile-h: clamp(32px,4.1vh,52px);
     position: relative; display: flex; align-items: center; justify-content: flex-start;
-    width: 100%; min-height: 68px; margin: 0;
-    padding: 10px 8px 10px calc(var(--chip) + 22px);
-    border: 0; border-radius: 20px; background: var(--neu-bg); color: var(--neu-text);
-    font: 600 .8rem/1.22 var(--font); text-align: left; cursor: pointer;
-    box-shadow: var(--neu-raise-md);
+    width: 100%; min-height: var(--tile-h); margin: 0;
+    padding: 3px 6px 3px calc(var(--chip) + 18px);
+    border: 0; border-radius: 16px; background: var(--neu-bg); color: var(--neu-text);
+    font: 600 clamp(.66rem,1.4vh,.78rem)/1.18 var(--font); text-align: left; cursor: pointer;
+    box-shadow: var(--neu-raise-sm);
     transition: box-shadow .15s ease, transform .15s ease;
     -webkit-tap-highlight-color: transparent;
   }
   .tile::before, .tile::after {
-    content: ""; position: absolute; left: 10px; top: 50%;
+    content: ""; position: absolute; left: 7px; top: 50%;
     width: var(--chip); height: var(--chip); margin-top: calc(var(--chip) / -2); border-radius: 50%;
   }
-  .tile::before { background: var(--neu-bg); box-shadow: var(--neu-inset-md); }
+  .tile::before { background: var(--neu-bg); box-shadow: var(--neu-inset-sm); }
   .tile::after  { background: var(--ic-color); -webkit-mask: var(--ic) center / 50% 50% no-repeat; mask: var(--ic) center / 50% 50% no-repeat; }
   .tile:hover:not(:disabled) { transform: translateY(-1px); }
-  .tile:active:not(:disabled) { transform: none; box-shadow: var(--neu-inset-md); }
+  .tile:active:not(:disabled) { transform: none; box-shadow: var(--neu-inset-sm); }
   .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .tile:disabled { cursor: not-allowed; box-shadow: 4px 4px 8px #d0d6e0, -4px -4px 8px #f6f9fd; }
   .tile .badge { position: absolute; top: 8px; right: 10px; margin: 0 !important; }
 
-  .tile.tile-wide { --chip: 42px; min-height: 76px; font-size: 1rem; justify-content: center; padding: 10px 14px 10px calc(var(--chip) + 22px); }
-  .tile.tile-hero { --chip: 48px; min-height: 88px; font-size: 1.04rem; grid-column: 1 / -1; padding-left: calc(var(--chip) + 28px); }
-  .tile.tile-hero::before, .tile.tile-hero::after { left: 18px; }
+  .tile.tile-wide { min-height: var(--tile-h); font-size: clamp(.74rem,1.6vh,.92rem); justify-content: center; padding: 3px 12px 3px calc(var(--chip) + 18px); }
+  .tile.tile-hero { --chip: clamp(28px,3.9vh,40px); min-height: calc(var(--tile-h) * 1.1); font-size: clamp(.76rem,1.7vh,.95rem); grid-column: 1 / -1; padding-left: calc(var(--chip) + 22px); }
+  .tile.tile-hero::before, .tile.tile-hero::after { left: 12px; }
 
   /* per-button icon + colour (state classes are toggled by the page's JS) */
   #btn-school-setup        { --ic: var(--i-school); }
@@ -279,14 +280,14 @@
   #btn-reset               { --ic: var(--i-trash); --ic-color: var(--bad); color: var(--bad); }
 
   /* Save = solid accent pill */
-  .hdr-foot { flex: none; padding: 6px 4px 18px; }
+  .hdr-foot { flex: none; padding: 4px 8px clamp(8px,1.6vh,16px); }
   .tile.tile-primary {
-    --chip: 24px; justify-content: center; min-height: 66px; border-radius: 34px;
-    background: var(--accent); color: #fff; font-size: 1.1rem; font-weight: 700; letter-spacing: .04em;
-    box-shadow: 8px 8px 16px var(--neu-dark), -8px -8px 16px var(--neu-light); padding: 10px 20px 10px 56px;
+    --chip: 20px; justify-content: center; min-height: clamp(42px,5.4vh,60px); border-radius: 34px;
+    background: var(--accent); color: #fff; font-size: clamp(.82rem,1.8vh,1rem); font-weight: 700; letter-spacing: .04em;
+    box-shadow: 6px 6px 12px var(--neu-dark), -6px -6px 12px var(--neu-light); padding: 6px 20px 6px 50px;
   }
   .tile.tile-primary::before { display: none; }
-  .tile.tile-primary::after  { left: 34px; background: #fff; -webkit-mask-size: contain; mask-size: contain; }
+  .tile.tile-primary::after  { left: 28px; background: #fff; -webkit-mask-size: contain; mask-size: contain; }
   #btn-save-now { --ic: var(--i-save); }
   .tile.tile-primary:disabled { background: #6f93d8; box-shadow: none; }
 

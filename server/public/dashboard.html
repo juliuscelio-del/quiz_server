@@ -1060,6 +1060,22 @@
   }
   .card::before { border-radius: 30px; }
   .stat-chip:hover::before { filter: drop-shadow(0 0 6px rgba(0,212,255,1)); }
+
+  /* ═══ PARTIAL NEON OUTLINE — sidebar toolbar boxes ═══ */
+  .tb-group { position: relative; }
+  .tb-group::before {
+    content: ''; display: block; position: absolute; inset: 0; padding: 1.5px; pointer-events: none;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #00d4ff 0%, rgba(0,212,255,0) 26%, rgba(124,92,255,0) 74%, #7c5cff 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    filter: drop-shadow(0 0 4px rgba(0,212,255,.85));
+  }
+  /* spread the 4 boxes down the sidebar to fill the gap above Save */
+  @media screen and (min-width: 1000px) {
+    .hdr-scroll { display: flex; flex-direction: column; }
+    .hdr-toolbar { flex: 1 1 auto; justify-content: space-evenly; }
+  }
 </style>
 </head>
 <body>

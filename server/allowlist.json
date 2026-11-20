@@ -1,12 +1,17 @@
 {
-  "issuedAt": "2026-11-18T03:57:43.081Z",
+  "issuedAt": "2026-11-19T23:50:32.125Z",
   "machines": [
     {
-      "id": "349aae95b8fff03a7234418b"
+      "id": "349aae95b8fff03a7234418b",
+      "expiresAt": "2027-06-30T15:59:59.000Z",
+      "wk": "kzCqA8hg9r2dQyzauYgoS+bpt9PsyV5Kp/0Szo1aZRZemQ5evwmp0zHtD7W+NHKRHRFROoVBizi2Uwsh"
     },
     {
-      "id": "c85f0e0821fa61c400646b36"
+      "id": "c85f0e0821fa61c400646b36",
+      "expiresAt": "2027-06-30T15:59:59.000Z",
+      "wk": "TIHDDITSi7zEmOh8dbGbIyWNSxQSKUcslwzzQ0ZYE3wYwNPtZXA4FO1Dw3J4scrz+hpfb9lHVnKm7jbp"
     }
   ],
-  "sig": "OIBsNWoPFW9ZP2ngx8/xS8GUo+6UFHTTZIZdZ64z2jqplZ8KK92SXMpwRvfyFdr0Irq6xEzBVMYMsg/X3f3uBA=="
+  "sig": "HDbJlV0ZMUgIHoOzAH2xe97GYFyaAahE2Ban4Gq/L09QeHCOkMnYlgbEsTn3YJt7IcnQK1Pzky0dDmx7JHLQBQ==",
+  "sig2": "cEXnimfx5cxzs00/Xl1FYd6qfmf+RlbU/IHbzZPA66ilCvtlQdV3rsFcC1ck6SBuaqsGj8qiYdfK9zLfeuleCw=="
 }

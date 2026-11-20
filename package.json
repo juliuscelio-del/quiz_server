@@ -26,7 +26,7 @@
     "appId": "ph.edu.gnhs.quiz.teacher",
     "productName": "GNHS Quiz Teacher",
     "asar": false,
-    "files": ["electron/**/*", "server/**/*", "package.json"],
+    "files": ["electron/**/*", "server/**/*", "!server/server.js", "package.json"],
     "directories": { "output": "dist" },
     "publish": [{
       "provider": "github",

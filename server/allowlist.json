@@ -1,13 +1,17 @@
 {
-  "issuedAt": "2026-11-20T01:46:26.497Z",
+  "issuedAt": "2026-11-20T01:51:15.329Z",
   "machines": [
     {
       "id": "349aae95b8fff03a7234418b"
     },
     {
+      "id": "5831bd56cc82d1abff77ea76",
+      "expiresAt": "2026-11-21T15:59:59.000Z"
+    },
+    {
       "id": "c85f0e0821fa61c400646b36"
     }
   ],
-  "sig": "6cY5/ojrnHierAhhFpvHlmBaNXEiyvkdsfoUG5VLAckoDdlSabmuQMBhas4f1ZttKgV/KRqSuRZDGW8dleowCA==",
-  "sig2": "RujBD/7aoFTYnZkeTTSu1Mqm+XDGoYFPo/fEjRipXOgfoPTwN75uVIXFuaKFioqCF2gaYOhtwq4BdIubUkMLCg=="
+  "sig": "/wKmq2QSR+cY4ztedO0ZOVr451jFJzTNSSCnt0usOj9DqwgH4Hm+IjH3yW4Zm2U2lM8iTxgmISvd9bYu2xR9CQ==",
+  "sig2": "XW9w+f2Td3eV0nQpyH2inaqk2hiAEW8d9dIv6S1AXsxWbi02Jt0bqMgnNeU9Hw2SMsQaqW6A4mS20aMROPdWCg=="
 }

@@ -120,7 +120,7 @@ function startServer() {
   const realExit = process.exit;
   process.exit = (code) => { throw new ExitSignal(String(code)); }; // license check calls process.exit(1)
   try {
-    require("../server/server.js");
+    require("../server/secure-loader.js").loadServer();
     return true;
   } catch (e) {
     if (e instanceof ExitSignal) return false;
@@ -148,7 +148,7 @@ function licenseOk() {
 }
 
 // Shown when this computer is not approved: ONE message, ONE OK button, then the app closes.
-function notAllowedHtml(id) {
+function notAllowedHtml(id, expiredOn) {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Not allowed</title>
 <style>
@@ -216,8 +216,11 @@ function notAllowedHtml(id) {
         <path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.3" r=".6" fill="#7f1d1d"/>
       </svg>
     </div>
-    <div class="badge">NOT ALLOWED</div>
-    <h1><b>DI KA PWED</b> mogamit ane<br>ug wai pananghid sa tag.iya</h1>
+    <div class="badge">${expiredOn ? "LICENSE EXPIRED" : "NOT ALLOWED"}</div>
+    ${expiredOn
+      ? `<h1>Natapos na ang <b>license</b> niini<br>kaniadtong <b>${expiredOn}</b></h1>
+    <p style="margin-top:12px;font-size:14px;color:#fecaca">Send the Machine ID below to Julius Celio to renew.<br>Also check that this computer's date is correct.</p>`
+      : `<h1><b>DI KA PWED</b> mogamit ane<br>ug wai pananghid sa tag.iya</h1>`}
     <div class="idbox">
       <small>Machine ID</small>
       <div class="idrow">
@@ -236,8 +239,90 @@ function notAllowedHtml(id) {
 </body></html>`;
 }
 
+// ── License key window ───────────────────────────────────────────────────────
+// Shown ONCE when this computer is approved but has no (valid) license key yet.
+// The teacher pastes the key Julius sent; it is saved, and the app starts.
+function keyEntryHtml(id, badKey) {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>License key</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;color:#fff;
+    background:radial-gradient(circle at 50% 0%,#1e3a8a 0%,#0f172a 60%,#020617 100%);-webkit-app-region:drag}
+  .card{height:100%;padding:28px 32px 24px;display:flex;flex-direction:column;gap:12px;border:2px solid #3b82f6;
+    box-shadow:inset 0 0 50px rgba(59,130,246,.2)}
+  h1{font-size:22px;font-weight:800}
+  p{font-size:13.5px;color:#bfdbfe;line-height:1.45}
+  .id{padding:9px 12px;border-radius:10px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);
+    display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .id small{display:block;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#93c5fd}
+  .id code{font-family:Consolas,"SF Mono",Menlo,monospace;font-size:14px;color:#fde68a;user-select:text;-webkit-user-select:text}
+  textarea{-webkit-app-region:no-drag;flex:1;min-height:90px;resize:none;padding:10px 12px;border-radius:10px;border:1px solid #475569;
+    background:#0b1220;color:#fff;font-family:Consolas,"SF Mono",Menlo,monospace;font-size:13px;user-select:text;-webkit-user-select:text}
+  textarea:focus{outline:2px solid #60a5fa}
+  #err{min-height:18px;font-size:13px;color:#fca5a5;font-weight:600}
+  .row{display:flex;gap:10px}
+  button{-webkit-app-region:no-drag;cursor:pointer;border:0;border-radius:10px;padding:12px 18px;font-size:15px;font-weight:800;color:#fff}
+  #go{flex:1;background:linear-gradient(180deg,#3b82f6,#1d4ed8)}
+  #quit{background:#334155}
+  #copy{padding:7px 12px;font-size:12px;background:linear-gradient(180deg,#fbbf24,#d97706);color:#3b0a0a;white-space:nowrap}
+  button:hover{filter:brightness(1.12)}
+</style></head>
+<body><div class="card">
+  <h1>🔑 Enter your license key</h1>
+  <p>This computer is approved. Paste the <b>license key</b> that Julius Celio sent you. You only do this once.</p>
+  <div class="id"><div><small>Your Machine ID</small><code>${id}</code></div><button id="copy" type="button">COPY</button></div>
+  <textarea id="key" placeholder="GNHS-XXXXX-XXXXX-XXXXX-…" spellcheck="false" autofocus></textarea>
+  <div id="err">${badKey ? "The saved license key is not valid for this computer. Paste a new one." : ""}</div>
+  <div class="row"><button id="quit" type="button">Quit</button><button id="go" type="button">ACTIVATE</button></div>
+</div>
+<script>
+  const go = () => { const v = document.getElementById("key").value.trim(); if (!v) return; location.href = "gnhs://activate?key=" + encodeURIComponent(v); };
+  document.getElementById("go").addEventListener("click", go);
+  document.getElementById("quit").addEventListener("click", () => { location.href = "gnhs://quit"; });
+  document.getElementById("copy").addEventListener("click", () => { location.href = "gnhs://copy"; });
+  document.getElementById("key").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(); } });
+</script></body></html>`;
+}
+
+// Resolves true when a valid key was saved, false if the teacher quit.
+function askForLicenseKey(badKey) {
+  const lic = require("../server/license-check.js");
+  const id = lic.getMachineId();
+  return new Promise((resolve) => {
+    const w = new BrowserWindow({
+      width: 560, height: 430, frame: false, resizable: false, minimizable: false, maximizable: false,
+      alwaysOnTop: true, center: true, show: false, backgroundColor: "#0f172a", title: "License key",
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    let result = false;
+    const showError = (msg) => w.webContents.executeJavaScript(
+      `document.getElementById("err").textContent=${JSON.stringify(msg)};`).catch(() => {});
+    w.webContents.on("will-navigate", (e, url) => {
+      if (!url.startsWith("gnhs://")) return;
+      e.preventDefault();
+      if (url.startsWith("gnhs://copy")) {
+        clipboard.writeText(id);
+      } else if (url.startsWith("gnhs://activate")) {
+        const key = decodeURIComponent((url.split("key=")[1] || ""));
+        const r = lic.installKey(key);
+        if (r.ok) { result = true; w.close(); } else showError(r.reason);
+      } else if (url.startsWith("gnhs://quit")) {
+        w.close();
+      }
+    });
+    w.once("ready-to-show", () => { w.show(); w.focus(); });
+    w.on("closed", () => resolve(result));
+    w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(keyEntryHtml(id, badKey)));
+  });
+}
+
 function showNotAllowedAndQuit() {
-  const id = require("../server/license-check.js").getMachineId();
+  const lic = require("../server/license-check.js");
+  const id = lic.getMachineId();
+  const st = lic.getLicenseStatus();
+  const expiredOn = st.state === "expired" ? lic.formatDate(st.expiresAt) : null;
   const w = new BrowserWindow({
     width: 500, height: 490,
     frame: false, resizable: false, minimizable: false, maximizable: false,
@@ -260,7 +345,24 @@ function showNotAllowedAndQuit() {
   });
   w.once("ready-to-show", () => { w.show(); w.focus(); });
   w.on("closed", () => app.exit(0));   // OK, Enter, Esc or Alt+F4: the app closes, nothing else opens
-  w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(notAllowedHtml(id)));
+  w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(notAllowedHtml(id, expiredOn)));
+}
+
+// Friendly reminder (once per start) when this computer's license ends within 30 days.
+function warnIfExpiringSoon() {
+  try {
+    const lic = require("../server/license-check.js");
+    const st = lic.getLicenseStatus();
+    if (st.state !== "expiring") return;
+    dialog.showMessageBox(win || undefined, {
+      type: "warning",
+      title: "License ending soon",
+      message: `Your GNHS Quiz license ends on ${lic.formatDate(st.expiresAt)} (${st.daysLeft} day${st.daysLeft === 1 ? "" : "s"} left).`,
+      detail: `Send this Machine ID to Julius Celio to renew it:\n\n${st.machineId}\n\nRenewing needs no new app — just open the app while online.`,
+      buttons: ["OK", "Copy Machine ID"],
+      defaultId: 0,
+    }).then((r) => { if (r.response === 1) clipboard.writeText(st.machineId); }).catch(() => {});
+  } catch (e) { /* never block the app over a reminder */ }
 }
 
 function waitForServer(ms = 20000) {
@@ -469,7 +571,16 @@ app.whenReady().then(async () => {
     await require("../server/license-check.js").refreshAllowlist();
     ok = licenseOk();
   }
-  // Not approved: show ONE popup with a single OK button, then close. Nothing else is reachable.
+  // Approved but no valid license key yet: ask for it (once), then carry on.
+  if (!ok) {
+    const state = require("../server/license-check.js").getLicenseStatus().state;
+    if (state === "no-key" || state === "bad-key") {
+      const entered = await askForLicenseKey(state === "bad-key");
+      if (!entered) { app.exit(0); return; }
+      ok = licenseOk();
+    }
+  }
+  // Not approved / expired: show ONE popup with a single OK button, then close. Nothing else is reachable.
   if (!ok) { showNotAllowedAndQuit(); return; }
 
   // 2) Approved: normal startup.
@@ -483,6 +594,7 @@ app.whenReady().then(async () => {
     return app.exit(1);
   }
   createWindow();
+  warnIfExpiringSoon();
   // Checks for app updates AND keeps the approved-machines list fresh (hourly).
   startAutoCheck(win, async () => {
     try { await saveNow(); } catch (_) {}   // save the quiz data first

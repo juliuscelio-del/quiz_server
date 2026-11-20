@@ -1,17 +1,20 @@
 {
-  "issuedAt": "2026-11-20T01:51:15.329Z",
+  "issuedAt": "2026-11-20T02:07:54.596Z",
   "machines": [
     {
-      "id": "349aae95b8fff03a7234418b"
+      "id": "349aae95b8fff03a7234418b",
+      "wk": "ZsiRB6x4LGl3HycaL/I3IHi6QJfKMVRG0MmAzoWWn4emWxxwcHenAXi/vK3TgeqqncI8AkspvZDT1fui"
     },
     {
       "id": "5831bd56cc82d1abff77ea76",
-      "expiresAt": "2026-11-21T15:59:59.000Z"
+      "expiresAt": "2026-11-21T15:59:59.000Z",
+      "wk": "NMNRJ8IyJm2+wWk41/ecKIit2MZqmq14G9A6Qbzm0tqjZI16ntq3FIQdTNr02WUBAoPC3tGpmLlY3ZXC"
     },
     {
-      "id": "c85f0e0821fa61c400646b36"
+      "id": "c85f0e0821fa61c400646b36",
+      "wk": "sZHSV3ZJWvyPb7kLGFYt93W7EChMTilN9dPEmk0FLfEI3L8yCGOGbewKy1QVnfisafvA/GhXvOLSy6Ye"
     }
   ],
-  "sig": "/wKmq2QSR+cY4ztedO0ZOVr451jFJzTNSSCnt0usOj9DqwgH4Hm+IjH3yW4Zm2U2lM8iTxgmISvd9bYu2xR9CQ==",
-  "sig2": "XW9w+f2Td3eV0nQpyH2inaqk2hiAEW8d9dIv6S1AXsxWbi02Jt0bqMgnNeU9Hw2SMsQaqW6A4mS20aMROPdWCg=="
+  "sig": "T8fzMG/IwalOPnQDkzqS3WoiJiXcgLEQE/r0txGzYnmXnBQ8tGbveNeC7rIbkiOb5bTyqdZZBYQFb4RYjJLuBw==",
+  "sig2": "WRDpgG0U1UDh39/0UB/xeGkKG5Hy5yc1uSzDzs+259zUerlvBhQ5gsgQJ9HZyxGBxeFAjW8qweEYs7EtQ2zNAg=="
 }

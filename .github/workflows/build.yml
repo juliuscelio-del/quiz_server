@@ -21,6 +21,32 @@ jobs:
           - { os: windows-latest, name: Windows }
     steps:
       - uses: actions/checkout@v4
+      - name: Check the app is sealed and up to date
+        shell: bash
+        run: |
+          node - <<'EOF'
+          const fs = require('fs'), c = require('crypto');
+          if (!fs.existsSync('server/server.js.enc')) {
+            console.error('server/server.js.enc is missing. On your Mac run: node admin/seal.js  then upload server/server.js.enc');
+            process.exit(1);
+          }
+          // server/server.js (the readable source) is deliberately NOT committed to this
+          // PUBLIC repo — committing it would publish the proprietary source regardless of
+          // sealing. Run "node admin/seal.js check" locally before every push instead; this
+          // step only verifies the check when a plaintext copy happens to be present (e.g. a
+          // private repo, or a local branch), and skips it otherwise rather than failing.
+          if (!fs.existsSync('server/server.js')) {
+            console.log('server/server.js not present (expected on a public repo) — skipping the local-copy check. Make sure you ran "node admin/seal.js check" before pushing.');
+            process.exit(0);
+          }
+          const enc = fs.readFileSync('server/server.js.enc');
+          const h = c.createHash('sha256').update(fs.readFileSync('server/server.js')).digest();
+          if (!enc.slice(8, 40).equals(h)) {
+            console.error('server/server.js changed after it was sealed. Run: node admin/seal.js  and upload server/server.js.enc');
+            process.exit(1);
+          }
+          console.log('Sealed app is up to date.');
+          EOF
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm install

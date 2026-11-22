@@ -1858,7 +1858,15 @@ function buildPanelHTML(secKey) {
               Submitted Results
               <span class="badge" id="results-badge-${id}">0</span>
             </div>
-            <button class="btn btn-outline btn-download-results" data-id="${id}" data-sec-key="${escapeAttr(secKey)}" style="font-size:.72rem;padding:6px 10px;" title="Download this section's submitted results as a Word document (A4 portrait)">⬇ Word</button>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <label style="display:flex;align-items:center;gap:3px;font-size:.68rem;font-weight:700;color:var(--gray);" title="Term / Quarter number used in the file name (T1, T2…)">T
+                <input type="text" class="ia-field" data-field="term" id="ia-term-${id}" value="1" maxlength="3" inputmode="numeric" style="width:34px;font-size:.72rem;padding:4px 5px;border:1px solid var(--border,#d1d5db);border-radius:6px;text-align:center;">
+              </label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:.68rem;font-weight:700;color:var(--gray);" title="Task / quiz number used in the file name (PT1, PT2…)">PT
+                <input type="text" class="ia-field" data-field="pt" id="ia-pt-${id}" value="1" maxlength="3" inputmode="numeric" style="width:34px;font-size:.72rem;padding:4px 5px;border:1px solid var(--border,#d1d5db);border-radius:6px;text-align:center;">
+              </label>
+              <button class="btn btn-outline btn-download-results" data-id="${id}" data-sec-key="${escapeAttr(secKey)}" style="font-size:.72rem;padding:6px 10px;" title="Download this section's submitted results as a Word document (A4 portrait)">⬇ Word</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -2665,6 +2673,9 @@ function hydrateAnalysisHeaderFields() {
     if (examname) examname.value = saved.examname ?? "";
     if (date)     date.value     = saved.date     ?? today;
     if (teacher)  teacher.value  = saved.teacher  ?? "";
+    const termEl = fieldEl("term"), ptEl = fieldEl("pt");
+    if (termEl) termEl.value = saved.term ?? "1";
+    if (ptEl)   ptEl.value   = saved.pt   ?? "1";
     updateAnalysisHeaderReadonlyFields(s.key, null);
 
     document.querySelectorAll(`#ia-header-${id} .ia-field`).forEach(inp => {
@@ -2676,6 +2687,35 @@ function hydrateAnalysisHeaderFields() {
       });
     });
   });
+}
+
+// Builds the download file name, e.g. "Del-Pilar_Math_T1_PT1.docx".
+//   Del-Pilar → the section, Math → the subject, T1 → term, PT1 → task no.
+// Term / PT come from the small T / PT boxes next to the ⬇ Word button
+// (remembered per section). For the combined "All Sections" panel, the section
+// is taken from who actually submitted; if they span several, "All-Sections".
+function buildQuizFileName(secKey, subs, ext = "docx") {
+  let key = secKey;
+  if (secKey === "ALL") {
+    const distinct = Array.from(new Set((subs || []).map(x => x.gradeSection).filter(Boolean)));
+    key = distinct.length === 1 ? distinct[0] : null;
+  }
+  const clean = (t) => String(t).trim().replace(/[^A-Za-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  let sectionPart = "All-Sections", subjectPart = "";
+  if (key) {
+    const raw = rawSectionFromKey(key);
+    sectionPart = clean(titleCaseSection(raw)) || "Section";
+    const subjUpper = key.slice(raw.length + 1);
+    const subj = SUBJECTS.find(x => x.toUpperCase() === subjUpper) || subjUpper;
+    subjectPart = clean(subj);
+  }
+  const id = secKey.replace(/[ .]/g, "_");
+  const num = (name, prefix) => {
+    const v = (document.getElementById(`ia-${name}-${id}`)?.value || "").trim().replace(/[^A-Za-z0-9]/g, "");
+    if (!v) return "";
+    return new RegExp("^" + prefix, "i").test(v) ? v.toUpperCase() : prefix + v;
+  };
+  return [sectionPart, subjectPart, num("term", "T"), num("pt", "PT")].filter(Boolean).join("_") + "." + ext;
 }
 
 // Reads the current values of a section's DepEd header fields (used by both
@@ -3147,7 +3187,7 @@ async function exportResultsDocx(id, secKey) {
     const blob = await Packer.toBlob(doc);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `submitted_results_${id}_${dateStr}.docx`;
+    a.download = buildQuizFileName(secKey || id, subs, "docx");
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -5906,7 +5946,7 @@ async function exportAnalysisDocx(secKey) {
     const blob = await Packer.toBlob(doc);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `item-analysis-${secKey.replace(/\s+/g, "_")}-${dateStr}.docx`;
+    a.download = buildQuizFileName(secKey, null, "docx").replace(/\.docx$/, "_Item-Analysis.docx");
     document.body.appendChild(a);
     a.click();
     a.remove();

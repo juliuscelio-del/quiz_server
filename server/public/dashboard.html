@@ -1862,9 +1862,10 @@ function buildPanelHTML(secKey) {
               <label style="display:flex;align-items:center;gap:3px;font-size:.68rem;font-weight:700;color:var(--gray);" title="Term / Quarter number used in the file name (T1, T2…)">T
                 <input type="text" class="ia-field" data-field="term" id="ia-term-${id}" value="1" maxlength="3" inputmode="numeric" style="width:34px;font-size:.72rem;padding:4px 5px;border:1px solid var(--border,#d1d5db);border-radius:6px;text-align:center;">
               </label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:.68rem;font-weight:700;color:var(--gray);" title="Task / quiz number used in the file name (PT1, PT2…)">PT
-                <input type="text" class="ia-field" data-field="pt" id="ia-pt-${id}" value="1" maxlength="3" inputmode="numeric" style="width:34px;font-size:.72rem;padding:4px 5px;border:1px solid var(--border,#d1d5db);border-radius:6px;text-align:center;">
-              </label>
+              <select class="ia-field" data-field="kind" id="ia-kind-${id}" title="Type used in the file name: PT = Performance Task, WW = Written Work, ST = Summative Test, TT = Term Test" style="font-size:.72rem;font-weight:700;color:var(--gray);padding:4px 3px;border:1px solid var(--border,#d1d5db);border-radius:6px;background:#fff;">
+                <option value="PT">PT</option><option value="WW">WW</option><option value="ST">ST</option><option value="TT">TT</option>
+              </select>
+              <input type="text" class="ia-field" data-field="pt" id="ia-pt-${id}" value="1" maxlength="3" inputmode="numeric" title="Number used in the file name (e.g. PT1, WW2, ST1, TT1)" style="width:34px;font-size:.72rem;padding:4px 5px;border:1px solid var(--border,#d1d5db);border-radius:6px;text-align:center;">
               <button class="btn btn-outline btn-download-results" data-id="${id}" data-sec-key="${escapeAttr(secKey)}" style="font-size:.72rem;padding:6px 10px;" title="Download this section's submitted results as a Word document (A4 portrait)">⬇ Word</button>
             </div>
           </div>
@@ -2676,6 +2677,8 @@ function hydrateAnalysisHeaderFields() {
     const termEl = fieldEl("term"), ptEl = fieldEl("pt");
     if (termEl) termEl.value = saved.term ?? "1";
     if (ptEl)   ptEl.value   = saved.pt   ?? "1";
+    const kindEl = fieldEl("kind");
+    if (kindEl) kindEl.value = saved.kind ?? "PT";
     updateAnalysisHeaderReadonlyFields(s.key, null);
 
     document.querySelectorAll(`#ia-header-${id} .ia-field`).forEach(inp => {
@@ -2691,7 +2694,8 @@ function hydrateAnalysisHeaderFields() {
 
 // Builds the download file name, e.g. "Del-Pilar_Math_T1_PT1.docx".
 //   Del-Pilar → the section, Math → the subject, T1 → term, PT1 → task no.
-// Term / PT come from the small T / PT boxes next to the ⬇ Word button
+//   (the PT part can also be WW, ST or TT — picked from the dropdown).
+// Term / type / number come from the small T / type / number boxes next to the ⬇ Word button
 // (remembered per section). For the combined "All Sections" panel, the section
 // is taken from who actually submitted; if they span several, "All-Sections".
 function buildQuizFileName(secKey, subs, ext = "docx") {
@@ -2715,7 +2719,8 @@ function buildQuizFileName(secKey, subs, ext = "docx") {
     if (!v) return "";
     return new RegExp("^" + prefix, "i").test(v) ? v.toUpperCase() : prefix + v;
   };
-  return [sectionPart, subjectPart, num("term", "T"), num("pt", "PT")].filter(Boolean).join("_") + "." + ext;
+  const kind = (document.getElementById(`ia-kind-${id}`)?.value || "PT").toUpperCase();
+  return [sectionPart, subjectPart, num("term", "T"), num("pt", kind)].filter(Boolean).join("_") + "." + ext;
 }
 
 // Reads the current values of a section's DepEd header fields (used by both

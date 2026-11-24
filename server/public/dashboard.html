@@ -1635,6 +1635,8 @@
         Upload a .docx built from the MC or Identification Import Template (TOPIC: / numbered questions / ANSWER: lines). Questions with lettered A/B/C choices import as Multiple Choice; questions with no lettered choices import as Identification (the ANSWER: line is read as free text). For weighted (partial credit) multiple choice, list the letters in order of credit on the ANSWER: line: ANSWER: B, A gives B 2 pts and A 1 pt (2,1,0); ANSWER: B, C, A gives 3, 2, 1 pts (3,2,1,0). Both types can be mixed in the same file. Matching items still use "Add Item".
       </p>
       <input type="file" id="item-bank-import-file" accept=".docx" style="width:100%;margin-bottom:10px;">
+      <label style="font-size:.78rem;font-weight:700;color:var(--navy);display:block;margin-bottom:6px">Name / Topic for these questions <span style="font-weight:600;color:var(--gray);text-transform:none;">(type anything you like — this is the name shown in the Item Bank and in Generate Quiz. Leave blank to use the TOPIC: line inside the Word file)</span></label>
+      <input type="text" id="item-bank-import-name" placeholder="e.g. Grade 9 – 1st Term Exam" maxlength="120" style="width:100%;box-sizing:border-box;margin-bottom:10px;">
       <div class="modal-actions" style="justify-content:flex-start;margin:0 0 10px;">
         <button class="btn btn-outline btn-sm" id="item-bank-import-parse">📄 Parse File</button>
       </div>
@@ -4666,6 +4668,7 @@ let itemBankImportParsed = []; // items returned by the parse step, in list orde
 function itemBankResetImportUI() {
   itemBankImportParsed = [];
   document.getElementById("item-bank-import-file").value = "";
+  document.getElementById("item-bank-import-name").value = "";
   document.getElementById("item-bank-import-err").style.display = "none";
   document.getElementById("item-bank-import-preview").style.display = "none";
   document.getElementById("item-bank-import-list").innerHTML = "";
@@ -4718,11 +4721,10 @@ document.getElementById("item-bank-import-parse").addEventListener("click", asyn
     const res = await fetch("/api/import-item-bank-docx", { method: "POST", body: fd });
     const data = await res.json();
     if (!data.ok) return itemBankImportShowError(data.message || "Import failed.");
-    // Label imported questions with the Word file's name AND its TOPIC: line
-    const fileLabel = fileInput.files[0].name.replace(/\.docx$/i, "").replace(/_+/g, " ").trim();
+    // Topic = whatever the teacher typed; else the TOPIC: line in the file; else "General"
+    const typedName = document.getElementById("item-bank-import-name").value.trim();
     (data.items || []).forEach(it => {
-      const t = (it.topic || "").trim();
-      it.topic = (t && t !== fileLabel) ? fileLabel + " | " + t : fileLabel;
+      it.topic = typedName || (it.topic || "").trim() || "General";
     });
     itemBankRenderImportPreview(data.items, data.errors || []);
   } catch (err) {
@@ -4739,6 +4741,9 @@ document.getElementById("item-bank-import-confirm").addEventListener("click", as
     .map(cb => itemBankImportParsed[Number(cb.dataset.idx)]);
 
   if (checked.length === 0) return itemBankImportShowError("Select at least one question to import.");
+  // Re-apply the name in case the teacher edited it after parsing
+  const finalName = document.getElementById("item-bank-import-name").value.trim();
+  if (finalName) checked.forEach(it => { it.topic = finalName; });
 
   try {
     const res = await fetch("/api/import-item-bank-docx/confirm", {

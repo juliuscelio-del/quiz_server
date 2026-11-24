@@ -4718,6 +4718,12 @@ document.getElementById("item-bank-import-parse").addEventListener("click", asyn
     const res = await fetch("/api/import-item-bank-docx", { method: "POST", body: fd });
     const data = await res.json();
     if (!data.ok) return itemBankImportShowError(data.message || "Import failed.");
+    // Label imported questions with the Word file's name AND its TOPIC: line
+    const fileLabel = fileInput.files[0].name.replace(/\.docx$/i, "").replace(/_+/g, " ").trim();
+    (data.items || []).forEach(it => {
+      const t = (it.topic || "").trim();
+      it.topic = (t && t !== fileLabel) ? fileLabel + " | " + t : fileLabel;
+    });
     itemBankRenderImportPreview(data.items, data.errors || []);
   } catch (err) {
     itemBankImportShowError("Could not reach the server to parse that file.");

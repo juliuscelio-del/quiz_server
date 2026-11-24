@@ -1139,6 +1139,7 @@
           <button class="tile quiz-open" id="btn-toggle-results">Results: ON</button>
           <button class="tile" id="btn-exam-type">Type: Quiz</button>
           <button class="tile" id="btn-quiz-duration">Duration: 60 min</button>
+          <button class="tile" id="btn-weighted">Weighted: ON</button>
           <button class="tile" id="btn-pause-all">Pause All Live</button>
         </div>
       </section>
@@ -1325,6 +1326,22 @@
     <div class="modal-actions">
       <button class="btn btn-outline" id="exam-type-cancel">Cancel</button>
       <button class="btn btn-blue" id="exam-type-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="weighted-modal">
+  <div class="modal-box">
+    <h2>⚖️ Weighted Scoring</h2>
+    <p>ON: multiple choice items that have weights (2,1,0 or 3,2,1,0) give partial credit.<br>OFF: every multiple choice item is plain right/wrong (1 or 0).</p>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-weight:600;cursor:pointer">
+      <input type="checkbox" id="weighted-enabled" style="width:16px;height:16px;margin:0"> Use weighted scoring for this exam
+    </label>
+    <input type="password" id="weighted-pw" placeholder="Admin password">
+    <p class="err-text" id="weighted-err">Incorrect password. Please try again.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="weighted-cancel">Cancel</button>
+      <button class="btn btn-blue" id="weighted-confirm">Confirm</button>
     </div>
   </div>
 </div>
@@ -1582,7 +1599,14 @@
       </div>
 
       <div id="item-bank-mc-fields">
-        <label style="font-size:.78rem;font-weight:700;color:var(--navy);display:block;margin:10px 0 6px">Choices (mark the correct one)</label>
+        <label style="font-size:.78rem;font-weight:700;color:var(--navy);display:block;margin:10px 0 6px">Scoring</label>
+        <select id="item-bank-scoring-mode" style="width:100%;box-sizing:border-box;">
+          <option value="1,0">Standard (1, 0) — correct or wrong</option>
+          <option value="2,1,0">Partial credit (2, 1, 0) — full, half, none</option>
+          <option value="3,2,1,0">Graded credit (3, 2, 1, 0) — best to wrong</option>
+        </select>
+        <p id="item-bank-scoring-hint" style="font-size:.72rem;color:var(--gray);margin:4px 0 0;"></p>
+        <label id="item-bank-choices-label" style="font-size:.78rem;font-weight:700;color:var(--navy);display:block;margin:10px 0 6px">Choices (mark the correct one)</label>
         <div id="item-bank-choices-box"></div>
         <button class="btn btn-outline btn-sm" id="item-bank-add-choice" style="margin-top:4px;">+ Add choice</button>
       </div>
@@ -1608,7 +1632,7 @@
 
     <div id="item-bank-import-pane" style="display:none;">
       <p style="font-size:.8rem;color:var(--gray);margin-bottom:10px;">
-        Upload a .docx built from the MC or Identification Import Template (TOPIC: / numbered questions / ANSWER: lines). Questions with lettered A/B/C choices import as Multiple Choice; questions with no lettered choices import as Identification (the ANSWER: line is read as free text). Both types can be mixed in the same file. Matching items still use "Add Item".
+        Upload a .docx built from the MC or Identification Import Template (TOPIC: / numbered questions / ANSWER: lines). Questions with lettered A/B/C choices import as Multiple Choice; questions with no lettered choices import as Identification (the ANSWER: line is read as free text). For weighted (partial credit) multiple choice, list the letters in order of credit on the ANSWER: line: ANSWER: B, A gives B 2 pts and A 1 pt (2,1,0); ANSWER: B, C, A gives 3, 2, 1 pts (3,2,1,0). Both types can be mixed in the same file. Matching items still use "Add Item".
       </p>
       <input type="file" id="item-bank-import-file" accept=".docx" style="width:100%;margin-bottom:10px;">
       <div class="modal-actions" style="justify-content:flex-start;margin:0 0 10px;">
@@ -1728,6 +1752,21 @@
     <div class="modal-actions">
       <button class="btn btn-outline" id="csv-cancel">Cancel</button>
       <button class="btn btn-green" id="csv-confirm">Download CSV</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="paper-modal">
+  <div class="modal-box" style="max-width:760px;width:94vw;max-height:88vh;display:flex;flex-direction:column;">
+    <h2 id="paper-title">📄 Test Paper</h2>
+    <p id="paper-meta" style="margin-bottom:10px;"></p>
+    <input type="password" id="paper-pw" placeholder="Admin password">
+    <p class="err-text" id="paper-err">Incorrect password.</p>
+    <div id="paper-body" style="overflow:auto;flex:1;border-radius:12px;margin-bottom:14px;min-height:100px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="paper-close">Close</button>
+      <button class="btn btn-green" id="paper-word" style="display:none;">⬇ Download Word</button>
+      <button class="btn btn-purple" id="paper-load">Load Paper</button>
     </div>
   </div>
 </div>
@@ -1871,7 +1910,7 @@ function buildPanelHTML(secKey) {
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>#</th><th>Student Name</th>${isAll ? '<th>Section</th>' : ''}<th>Score</th><th>%</th><th>Duration</th></tr></thead>
+              <thead><tr><th>#</th><th>Student Name</th>${isAll ? '<th>Section</th>' : ''}<th>Score</th><th>%</th><th>Duration</th><th>Paper</th></tr></thead>
               <tbody id="results-tbody-${id}"></tbody>
             </table>
           </div>
@@ -2574,7 +2613,8 @@ function renderTable(id, subs, showSection) {
       ${secBadge}
       <td style="font-family:var(--mono);font-weight:600">${s.score}/${s.maxScore ?? s.totalItems}</td>
       <td style="font-family:var(--mono);font-weight:600">${s.percentage}%</td>
-      <td style="font-family:var(--mono);font-size:.75rem">${fmtDur(s.durationMs||0)}</td>`;
+      <td style="font-family:var(--mono);font-size:.75rem">${fmtDur(s.durationMs||0)}</td>
+      <td><button class="btn btn-outline btn-sm btn-paper" data-paper-id="${id}" data-paper-idx="${idx}">📄 Paper</button></td>`;
     tbody.appendChild(tr);
   });
 }
@@ -3603,6 +3643,7 @@ socket.on("quiz-archive-detail", (entry) => {
       <td style="padding:8px 10px;font-size:.8rem;text-align:center;">${s.score}/${s.maxScore ?? s.totalItems}</td>
       <td style="padding:8px 10px;font-size:.8rem;text-align:center;">${s.percentage}%</td>
       <td style="padding:8px 10px;font-size:.8rem;text-align:center;font-weight:700;">${gradeFromPct(s.percentage)}</td>
+      <td style="padding:8px 10px;text-align:center;"><button class="btn btn-outline btn-sm" data-arc-paper="${escapeAttr(s.studentId)}" data-arc-name="${escapeAttr(s.name)}" data-arc-id="${escapeAttr(entry.id)}">📄</button></td>
     </tr>
   `).join("");
 
@@ -3616,6 +3657,7 @@ socket.on("quiz-archive-detail", (entry) => {
           <th style="padding:8px 10px;text-align:center;font-size:.72rem;color:var(--gray);">Score</th>
           <th style="padding:8px 10px;text-align:center;font-size:.72rem;color:var(--gray);">%</th>
           <th style="padding:8px 10px;text-align:center;font-size:.72rem;color:var(--gray);">Grade</th>
+          <th style="padding:8px 10px;text-align:center;font-size:.72rem;color:var(--gray);">Paper</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -4261,21 +4303,56 @@ document.getElementById("item-bank-add-pair").addEventListener("click", () => {
   itemBankRenderPairs(values);
 });
 
-function itemBankRenderChoiceRow(idx, value) {
+function itemBankScoringMode() {
+  return document.getElementById("item-bank-scoring-mode")?.value || "1,0";
+}
+
+// Default weight per choice position for a preset, e.g. "3,2,1,0" -> [3,2,1,0,0,0]
+function itemBankDefaultWeights(mode, n) {
+  const preset = mode.split(",").map(Number);
+  return Array.from({ length: n }, (_, i) => preset[i] || 0);
+}
+
+// Show/hide the weight boxes and the correct-answer radios for the chosen mode
+function itemBankApplyMode() {
+  const weighted = itemBankScoringMode() !== "1,0";
+  document.querySelectorAll(".ib-weight-input").forEach(el => { el.style.display = weighted ? "" : "none"; });
+  document.querySelectorAll('input[name="ib-correct"]').forEach(el => { el.style.display = weighted ? "none" : ""; });
+  const lbl = document.getElementById("item-bank-choices-label");
+  if (lbl) lbl.textContent = weighted ? "Choices (enter the points each choice earns)" : "Choices (mark the correct one)";
+  const hint = document.getElementById("item-bank-scoring-hint");
+  if (hint) hint.textContent = weighted
+    ? "Each choice gets a weight. The highest weight is full credit; others earn that fraction of the item's points. Default item points = highest weight."
+    : "";
+}
+
+function itemBankRenderChoiceRow(idx, value, weight) {
   return `
     <div class="ib-choice-row" data-choice-idx="${idx}">
       <input type="radio" name="ib-correct" value="${idx}" ${idx === 0 ? "checked" : ""}>
+      <input type="number" class="ib-weight-input" min="0" max="10" step="1" value="${weight ?? 0}" title="Points for this choice" style="width:54px;flex:none;font-size:.85rem;padding:7px 6px;display:none;">
       <input type="text" class="ib-choice-input" placeholder="Choice ${idx + 1}" value="${escapeAttr(value || "")}" style="font-size:.85rem;padding:7px 9px;">
       <button type="button" class="btn btn-red btn-sm ib-remove-choice" data-choice-idx="${idx}" ${itemBankChoiceCount <= 2 ? "disabled style=\"opacity:.4;\"" : ""}>✕</button>
     </div>`;
 }
 
-function itemBankRenderChoices(values) {
+function itemBankRenderChoices(values, weights) {
   const vals = values && values.length ? values : ["", "", "", ""];
+  const w = Array.isArray(weights) && weights.length ? weights : itemBankDefaultWeights(itemBankScoringMode(), vals.length);
   itemBankChoiceCount = vals.length;
-  document.getElementById("item-bank-choices-box").innerHTML = vals.map((v, i) => itemBankRenderChoiceRow(i, v)).join("");
+  document.getElementById("item-bank-choices-box").innerHTML = vals.map((v, i) => itemBankRenderChoiceRow(i, v, w[i] ?? 0)).join("");
   itemBankWireChoiceRemovers();
+  itemBankApplyMode();
 }
+
+function itemBankCurrentWeights() {
+  return [...document.querySelectorAll(".ib-weight-input")].map(i => Number(i.value));
+}
+
+document.getElementById("item-bank-scoring-mode").addEventListener("change", () => {
+  const values = [...document.querySelectorAll(".ib-choice-input")].map(i => i.value);
+  itemBankRenderChoices(values, itemBankDefaultWeights(itemBankScoringMode(), values.length));
+});
 
 function itemBankWireChoiceRemovers() {
   document.querySelectorAll(".ib-remove-choice").forEach(btn => {
@@ -4285,9 +4362,10 @@ function itemBankWireChoiceRemovers() {
       rows[Number(btn.dataset.choiceIdx)].remove();
       // reindex remaining rows
       const remaining = [...document.querySelectorAll(".ib-choice-row .ib-choice-input")].map(i => i.value);
+      const remainingW = [...document.querySelectorAll(".ib-choice-row .ib-weight-input")].map(i => Number(i.value));
       const checkedIdx = Number(document.querySelector('input[name="ib-correct"]:checked')?.value ?? 0);
       const newCorrect = Math.max(0, checkedIdx >= remaining.length ? remaining.length - 1 : checkedIdx);
-      itemBankRenderChoices(remaining);
+      itemBankRenderChoices(remaining, remainingW);
       const radios = document.querySelectorAll('input[name="ib-correct"]');
       if (radios[newCorrect]) radios[newCorrect].checked = true;
     });
@@ -4375,6 +4453,7 @@ function itemBankClearForm() {
   document.getElementById("item-bank-new-q").value = "";
   document.getElementById("item-bank-new-answer").value = "";
   itemBankSetImage("");
+  document.getElementById("item-bank-scoring-mode").value = "1,0";
   itemBankRenderChoices(["", "", "", ""]);
   itemBankRenderPairs(null);
   itemBankSetType("mc");
@@ -4401,7 +4480,9 @@ function itemBankStartEdit(item) {
   } else if (item.type === "matching") {
     itemBankRenderPairs(item.pairs || null);
   } else {
-    itemBankRenderChoices(item.choices || ["", "", "", ""]);
+    const hasW = Array.isArray(item.weights) && item.weights.length;
+    document.getElementById("item-bank-scoring-mode").value = hasW ? (Math.max(...item.weights) >= 3 ? "3,2,1,0" : "2,1,0") : "1,0";
+    itemBankRenderChoices(item.choices || ["", "", "", ""], hasW ? item.weights : null);
     const radios = document.querySelectorAll('input[name="ib-correct"]');
     if (radios[item.correct]) radios[item.correct].checked = true;
   }
@@ -4547,8 +4628,10 @@ document.getElementById("generate-quiz-topic-clear").addEventListener("click", (
 document.getElementById("item-bank-add-choice").addEventListener("click", () => {
   if (itemBankChoiceCount >= 6) return;
   const values = [...document.querySelectorAll(".ib-choice-input")].map(i => i.value);
+  const ws = itemBankCurrentWeights();
   values.push("");
-  itemBankRenderChoices(values);
+  ws.push(0);
+  itemBankRenderChoices(values, ws);
 });
 
 function itemBankShowPane(pane) {
@@ -4608,7 +4691,7 @@ function itemBankRenderImportPreview(items, errors) {
         <div style="font-weight:600;margin:2px 0 4px;text-align:left;">${escapeHtml(it.q)}</div>
         ${it.type === "identification"
           ? `<div style="text-align:left;color:#1e7a34;font-weight:700;">Answer: ${escapeHtml(it.answer || "")}</div>`
-          : (it.choices || []).map((c, ci) => `<div style="${ci === it.correct ? 'color:#1e7a34;font-weight:700;' : 'color:var(--gray);'}text-align:left;">${String.fromCharCode(65 + ci)}. ${escapeHtml(c)}${ci === it.correct ? ' ✓' : ''}</div>`).join("")}
+          : (it.choices || []).map((c, ci) => `<div style="${ci === it.correct ? 'color:#1e7a34;font-weight:700;' : 'color:var(--gray);'}text-align:left;">${String.fromCharCode(65 + ci)}. ${escapeHtml(c)}${ci === it.correct ? ' ✓' : ''}${Array.isArray(it.weights) ? ` <span style="color:var(--gray);font-weight:600;">(${Number(it.weights[ci]) || 0} pt${Number(it.weights[ci]) === 1 ? "" : "s"})</span>` : ''}</div>`).join("")}
       </div>
     </div>
   `).join("") || `<div style="padding:16px;text-align:center;color:var(--gray);font-size:.85rem;">No valid questions found in that file.</div>`;
@@ -4704,6 +4787,7 @@ document.getElementById("item-bank-submit").addEventListener("click", () => {
   } else {
     payload.choices = [...document.querySelectorAll(".ib-choice-input")].map(i => i.value.trim());
     payload.correct = Number(document.querySelector('input[name="ib-correct"]:checked')?.value ?? 0);
+    if (itemBankScoringMode() !== "1,0") payload.weights = itemBankCurrentWeights();
   }
   if (itemBankEditingId) {
     socket.emit("admin-update-item-bank-item", { ...payload, id: itemBankEditingId });
@@ -4762,7 +4846,7 @@ function itemBankRenderList() {
             `).join("")
           : (it.choices || []).map((c, i) => `
               <div style="font-size:.78rem;padding:1px 0;${i === it.correct ? "font-weight:700;color:#15803d;" : "color:#1e293b;"}">
-                ${letters[i] || i + 1}. ${escapeAttr(c)}${i === it.correct ? " ✓" : ""}
+                ${letters[i] || i + 1}. ${escapeAttr(c)}${Array.isArray(it.weights) ? ` <span style="color:var(--gray);font-weight:600;">(${Number(it.weights[i]) || 0} pt${Number(it.weights[i]) === 1 ? "" : "s"})</span>` : ""}${i === it.correct ? " ✓" : ""}
               </div>
             `).join("")}
       </div>
@@ -5303,7 +5387,7 @@ function refreshConfigButtons() {
   const tag = document.getElementById("hdr-quiz-tag");
   const typeBtn = document.getElementById("btn-exam-type");
   const durBtn = document.getElementById("btn-quiz-duration");
-  const cfgButtons = ["btn-lock-quiz", "btn-exam-type", "btn-quiz-duration", "btn-points", "btn-generate-quiz", "btn-load-archive-exam"];
+  const cfgButtons = ["btn-lock-quiz", "btn-exam-type", "btn-quiz-duration", "btn-weighted", "btn-points", "btn-generate-quiz", "btn-load-archive-exam"];
   cfgButtons.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -5318,6 +5402,7 @@ function refreshConfigButtons() {
     tag.textContent = "ALL"; tag.dataset.state = "all";
     typeBtn.textContent = "Type: —";
     durBtn.textContent = "Duration: —";
+    document.getElementById("btn-weighted").textContent = "Weighted: —";
     return;
   }
   quizIsOpen = !!st.open;
@@ -5332,6 +5417,8 @@ function refreshConfigButtons() {
   typeBtn.textContent = EXAM_TYPE_BTN_LABEL[currentExamType];
   currentQuizDurationMinutes = st.durationMinutes;
   durBtn.textContent = `Duration: ${st.durationMinutes} min`;
+  currentWeighted = st.weightedScoring !== false;
+  document.getElementById("btn-weighted").textContent = `Weighted: ${currentWeighted ? "ON" : "OFF"}`;
 }
 
 socket.on("exam-status-map", ({ statuses }) => {
@@ -5453,6 +5540,29 @@ socket.on("set-exam-type-success", ({ examType }) => {
     `Students of ${SECTION_LABELS[cfgKey()] || cfgKey()} will now see "${examType}" on their screen.`);
 });
 socket.on("set-exam-type-failed", () => { document.getElementById("exam-type-err").style.display = "block"; });
+
+// ── Weighted scoring ON/OFF ───────────────────────────────────────────────────
+let currentWeighted = true;
+document.getElementById("btn-weighted").addEventListener("click", () => {
+  if (!requireCfgKey()) return;
+  document.getElementById("weighted-enabled").checked = currentWeighted;
+  document.getElementById("weighted-err").style.display = "none";
+  document.getElementById("weighted-pw").value = "";
+  document.getElementById("weighted-modal").classList.add("open");
+});
+document.getElementById("weighted-cancel").addEventListener("click", () => document.getElementById("weighted-modal").classList.remove("open"));
+document.getElementById("weighted-confirm").addEventListener("click", () => {
+  const pw = document.getElementById("weighted-pw").value.trim();
+  if (!pw) return;
+  socket.emit("admin-set-weighted-scoring", { password: pw, enabled: document.getElementById("weighted-enabled").checked, sectionKey: cfgKey() });
+});
+socket.on("set-weighted-scoring-success", ({ enabled }) => {
+  document.getElementById("weighted-modal").classList.remove("open");
+  showToast("green", "⚖️", `Weighted scoring ${enabled ? "ON" : "OFF"}`, enabled
+    ? "Multiple choice items with weights now give partial credit (applies to students who log in from now on)."
+    : "All multiple choice items are now plain right/wrong (applies to students who log in from now on).");
+});
+socket.on("set-weighted-scoring-failed", () => { document.getElementById("weighted-err").style.display = "block"; });
 
 // ── Exam Duration (minutes) ───────────────────────────────────────────────────
 document.getElementById("btn-quiz-duration").addEventListener("click", () => {
@@ -5600,6 +5710,113 @@ document.getElementById("points-confirm").addEventListener("click", () => {
 socket.on("points-set-success", ({ maxScore }) => {
   document.getElementById("points-modal").classList.remove("open");
   showToast("green", "🎯", "Points saved", `New max score is ${maxScore} points.`);
+});
+
+// ── Student Test Paper viewer ────────────────────────────────────────────────
+let paperSub = null, paperData = null, paperPw = null, paperArchiveId = null;
+const LET = ["A","B","C","D","E","F"];
+
+function openPaper(studentId, name, archiveId) {
+  paperSub = { studentId, name }; paperArchiveId = archiveId || null; paperData = null;
+  document.getElementById("paper-title").textContent = `📄 ${name}`;
+  document.getElementById("paper-meta").textContent = "";
+  document.getElementById("paper-err").style.display = "none";
+  document.getElementById("paper-pw").value = paperPw || archivesPw || questionHistoryPw || itemBankPw || "";
+  document.getElementById("paper-body").innerHTML = `<div class="empty-state"><div class="es-icon">🔑</div>Enter the admin password and click Load Paper.</div>`;
+  document.getElementById("paper-word").style.display = "none";
+  document.getElementById("paper-load").style.display = "";
+  document.getElementById("paper-modal").classList.add("open");
+  if (document.getElementById("paper-pw").value) document.getElementById("paper-load").click();
+}
+
+// live results table
+document.addEventListener("click", e => {
+  const btn = e.target.closest(".btn-paper");
+  if (!btn) return;
+  const entry = panelResultsById[btn.dataset.paperId];
+  const s = entry && entry.subs[Number(btn.dataset.paperIdx)];
+  if (s) openPaper(s.studentId, s.name, null);
+});
+// archived exam results table
+document.addEventListener("click", e => {
+  const btn = e.target.closest("[data-arc-paper]");
+  if (btn) openPaper(btn.dataset.arcPaper, btn.dataset.arcName, btn.dataset.arcId);
+});
+
+document.getElementById("paper-close").addEventListener("click", () => document.getElementById("paper-modal").classList.remove("open"));
+document.getElementById("paper-load").addEventListener("click", () => {
+  const pw = document.getElementById("paper-pw").value.trim();
+  if (!pw || !paperSub) return;
+  paperPw = pw;
+  socket.emit("admin-get-student-paper", { password: pw, studentId: paperSub.studentId, archiveId: paperArchiveId || undefined });
+});
+socket.on("student-paper-error", ({ message }) => {
+  if (!document.getElementById("paper-modal").classList.contains("open")) return;
+  const err = document.getElementById("paper-err");
+  err.textContent = message || "Could not load paper."; err.style.display = "block";
+});
+socket.on("student-paper", (d) => {
+  if (!paperSub || d.studentId !== paperSub.studentId) return;
+  paperData = d;
+  document.getElementById("paper-err").style.display = "none";
+  document.getElementById("paper-title").textContent = `📄 ${d.name}`;
+  document.getElementById("paper-meta").textContent =
+    `${SECTION_LABELS[d.gradeSection] || d.gradeSection}${d.examName ? " · " + d.examName : ""} · Score ${d.score}/${d.maxScore} (${d.percentage}%)`;
+  document.getElementById("paper-body").innerHTML = d.questionMap.map(paperItemHtml).join("");
+  document.getElementById("paper-word").style.display = "inline-flex";
+  document.getElementById("paper-load").style.display = "none";
+});
+
+// plain-text lines for one item (shared by screen + Word)
+function paperItemLines(q) {
+  if (q.type === "identification") {
+    return [{ t: `Student answered: ${q.typedAnswer || "(blank)"}`, ok: q.isCorrect },
+            { t: `Correct answer: ${q.correctAnswer}`, ok: true }];
+  }
+  if (q.type === "matching") {
+    return (q.leftItems || []).map((l, i) => {
+      const sel = q.selected?.[i], cor = q.correctIndexes?.[i];
+      const picked = sel >= 0 ? q.options[sel] : "(blank)";
+      return { t: `${l} → ${picked}${q.perPairCorrect?.[i] ? "" : `   (correct: ${q.options[cor]})`}`, ok: !!q.perPairCorrect?.[i] };
+    });
+  }
+  return (q.choices || []).map((c, i) => ({
+    t: `${LET[i]}. ${c}${i === q.selectedIndex ? "   ← student's answer" : ""}${i === q.correctIndex ? "   ✓" : ""}`,
+    ok: i === q.correctIndex ? true : (i === q.selectedIndex ? false : null),
+  }));
+}
+function paperItemHtml(q) {
+  const col = q.isCorrect ? "var(--ok)" : "var(--bad)";
+  const lines = paperItemLines(q).map(l =>
+    `<div style="font-size:.78rem;padding:1px 0 1px 10px;${l.ok === true ? "color:var(--ok);font-weight:700;" : l.ok === false ? "color:var(--bad);font-weight:700;" : ""}">${escapeAttr(l.t)}</div>`).join("");
+  return `<div style="padding:10px 14px;margin-bottom:8px;border-radius:14px;box-shadow:var(--neu-inset-sm);border-left:4px solid ${col};">
+    ${q.passage ? `<div style="font-size:.74rem;color:#5b4a1e;background:#fbf3dc;border-radius:6px;padding:5px 8px;margin-bottom:6px;white-space:pre-line;">${escapeAttr(q.passage)}</div>` : ""}
+    <div style="font-weight:700;font-size:.84rem;">${q.num}. ${escapeAttr(q.q)} <span style="font-weight:600;color:var(--gray);font-size:.7rem;">(${q.pointsEarned}/${q.points} pt${q.points === 1 ? "" : "s"})</span></div>
+    ${q.image ? `<img src="${escapeAttr(q.image)}" alt="" style="max-width:200px;max-height:130px;margin:4px 0;border-radius:6px;">` : ""}
+    ${lines}</div>`;
+}
+
+document.getElementById("paper-word").addEventListener("click", async () => {
+  if (typeof docx === "undefined" || !paperData) return;
+  const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx;
+  const d = paperData;
+  const kids = [
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "TEST PAPER", bold: true, size: 28 })] }),
+    new Paragraph({ children: [new TextRun({ text: `Name: ${d.name}`, bold: true, size: 22 })] }),
+    new Paragraph({ children: [new TextRun({ text: `Section: ${SECTION_LABELS[d.gradeSection] || d.gradeSection}${d.examName ? "   Exam: " + d.examName : ""}`, size: 20 })] }),
+    new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: `Score: ${d.score}/${d.maxScore} (${d.percentage}%)`, size: 20 })] }),
+    ...d.questionMap.flatMap(q => [
+      new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: `${q.num}. ${q.q}  (${q.pointsEarned}/${q.points})`, bold: true, size: 20 })] }),
+      ...paperItemLines(q).map(l => new Paragraph({ indent: { left: 360 }, children: [new TextRun({
+        text: l.t, size: 18, bold: l.ok !== null, color: l.ok === true ? "15803D" : l.ok === false ? "B91C1C" : undefined })] })),
+    ]),
+  ];
+  const blob = await Packer.toBlob(new Document({ sections: [{ properties: { page: { size: { width: 11906, height: 16838 } } }, children: kids }] }));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${d.name.replace(/[^A-Za-z0-9]+/g, "_")}_Test-Paper.docx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
 });
 
 // ── Export Item Analysis for Table of Specification ─────────────────────────────

@@ -5843,22 +5843,35 @@ socket.on("student-paper", (d) => {
 });
 
 // plain-text lines for one item (shared by screen + Word)
+// Rule: the CORRECT answer is green + bold. When the student picked it, it also gets a ✓. The student's WRONG pick is red + bold, marked ✗.
 function paperItemLines(q) {
   if (q.type === "identification") {
-    return [{ t: `Student answered: ${q.typedAnswer || "(blank)"}`, ok: q.isCorrect },
+    return [q.isCorrect
+              ? { t: `Student answered: ${q.typedAnswer || "(blank)"}   ✓`, ok: true }
+              : { t: `Student answered: ${q.typedAnswer || "(blank)"}   ✗`, ok: false },
             { t: `Correct answer: ${q.correctAnswer}`, ok: true }];
   }
   if (q.type === "matching") {
-    return (q.leftItems || []).map((l, i) => {
+    return (q.leftItems || []).flatMap((l, i) => {
       const sel = q.selected?.[i], cor = q.correctIndexes?.[i];
       const picked = sel >= 0 ? q.options[sel] : "(blank)";
-      return { t: `${l} → ${picked}${q.perPairCorrect?.[i] ? "" : `   (correct: ${q.options[cor]})`}`, ok: !!q.perPairCorrect?.[i] };
+      if (q.perPairCorrect?.[i]) return [{ t: `${l} → ${picked}   ✓`, ok: true }];
+      return [{ t: `${l} → ${picked}   ✗`, ok: false },
+              { t: `      Correct: ${q.options[cor]}`, ok: true }];
     });
   }
-  return (q.choices || []).map((c, i) => ({
-    t: `${LET[i]}. ${c}${i === q.selectedIndex ? "   ← student's answer" : ""}${i === q.correctIndex ? "   ✓" : ""}`,
-    ok: i === q.correctIndex ? true : (i === q.selectedIndex ? false : null),
-  }));
+  // Multiple choice. Weighted item (choiceWeights present): every choice worth > 0 is green and
+  // shows its weight, e.g. "(2)". A picked choice worth 0 is red with ✗.
+  // Plain item: the correct choice is green; a wrong pick is red with ✗.
+  const cw = Array.isArray(q.choiceWeights) ? q.choiceWeights : null;
+  return (q.choices || []).map((c, i) => {
+    const picked = i === q.selectedIndex;
+    const good = cw ? (Number(cw[i]) || 0) > 0 : i === q.correctIndex;
+    return {
+      t: `${LET[i]}. ${c}${picked ? "   ← student's answer" : ""}${good && cw ? `   (${Number(cw[i])})` : ""}${good && picked ? "   ✓" : ""}${!good && picked ? "   ✗" : ""}`,
+      ok: good ? true : (picked ? false : null),
+    };
+  });
 }
 function paperItemHtml(q) {
   const col = q.isCorrect ? "var(--ok)" : "var(--bad)";
@@ -5880,7 +5893,7 @@ document.getElementById("paper-word").addEventListener("click", async () => {
     new Paragraph({ children: [new TextRun({ text: `Section: ${SECTION_LABELS[d.gradeSection] || d.gradeSection}${d.examName ? "   Exam: " + d.examName : ""}`, size: 20 })] }),
     new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: `Score: ${d.score}/${d.maxScore} (${d.percentage}%)`, size: 20 })] }),
     ...d.questionMap.flatMap(q => [
-      new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: `${q.num}. ${q.q}  (${q.pointsEarned}/${q.points})`, bold: true, size: 20 })] }),
+      new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: `${q.num}. ${q.q}`, bold: true, size: 20 })] }),
       ...paperItemLines(q).map(l => new Paragraph({ indent: { left: 360 }, children: [new TextRun({
         text: l.t, size: 18, bold: l.ok !== null, color: l.ok === true ? "15803D" : l.ok === false ? "B91C1C" : undefined })] })),
     ]),

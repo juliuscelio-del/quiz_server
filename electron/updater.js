@@ -38,6 +38,8 @@ let checkStartedAt = 0;
 let downloading = false;
 let finished = false;      // a check completed (found / not found)
 let shownOffline = false;
+let firstCheckDone = false;  // the popups (checking / error / up-to-date) show ONLY for the first check after the app opens
+let silentCheck = false;     // true during the 30-second background retries: no popups unless an update is really found
 let locked = false;        // true while the popup must not be closed by the student (checking / countdown / downloading)
 let forceClose = false;    // set when the app itself closes the popup
 let macInfo = null;        // update info found on Mac
@@ -340,6 +342,7 @@ autoUpdater.on('update-available', (info) => {
 
 autoUpdater.on('update-not-available', () => {
   finished = true;
+  if (silentCheck) return;   // background retry: stay quiet
   // keep the "checking" popup up for the full 10 seconds, then show the up-to-date message for 5
   const wait = Math.max(0, CHECKING_MS - (Date.now() - checkStartedAt));
   clearTimeout(closeTimer);
@@ -372,7 +375,7 @@ autoUpdater.on('error', () => {
     });
     return;
   }
-  if (checking) {
+  if (checking && !silentCheck) {   // only the first check after opening shows this popup
     show({ title: "Couldn't check for updates", message: 'Check your internet connection.', icon: 'alert' }, NOTICE_MS);
   }
 });
@@ -381,6 +384,7 @@ autoUpdater.on('error', () => {
 async function check() {
   if (finished || checking || revoking || !app.isPackaged) return;
   if (!net.isOnline()) {
+    firstCheckDone = true;           // the offline notice counts as the one popup for this launch
     if (!shownOffline) {
       shownOffline = true;
       show({
@@ -393,9 +397,11 @@ async function check() {
   }
   checking = true;
   checkStartedAt = Date.now();
-  show({ title: 'paabot kadali....mangita tag update...', spinner: true });
+  silentCheck = firstCheckDone;      // first check = visible, every retry after = silent
+  firstCheckDone = true;
+  if (!silentCheck) show({ title: 'paabot kadali....mangita tag update...', spinner: true });
   // safety net: if the check hangs, unlock and close the popup so the student is never stuck
-  const failsafe = setTimeout(closePopup, CHECK_FAILSAFE_MS);
+  const failsafe = setTimeout(() => { if (!silentCheck) closePopup(); }, CHECK_FAILSAFE_MS);
   try {
     await autoUpdater.checkForUpdates();
   } catch (e) {

@@ -5825,6 +5825,13 @@ socket.on("student-paper-error", ({ message }) => {
 });
 socket.on("student-paper", (d) => {
   if (!paperSub || d.studentId !== paperSub.studentId) return;
+  // arrange items from least to greatest item number (screen + Word)
+  if (Array.isArray(d.questionMap)) {
+    d.questionMap = d.questionMap
+      .map((q, i) => ({ q, i }))
+      .sort((a, b) => (Number(a.q.num) - Number(b.q.num)) || (a.i - b.i))
+      .map(x => x.q);
+  }
   paperData = d;
   document.getElementById("paper-err").style.display = "none";
   document.getElementById("paper-title").textContent = `📄 ${d.name}`;
@@ -5869,7 +5876,6 @@ document.getElementById("paper-word").addEventListener("click", async () => {
   const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx;
   const d = paperData;
   const kids = [
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "TEST PAPER", bold: true, size: 28 })] }),
     new Paragraph({ children: [new TextRun({ text: `Name: ${d.name}`, bold: true, size: 22 })] }),
     new Paragraph({ children: [new TextRun({ text: `Section: ${SECTION_LABELS[d.gradeSection] || d.gradeSection}${d.examName ? "   Exam: " + d.examName : ""}`, size: 20 })] }),
     new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: `Score: ${d.score}/${d.maxScore} (${d.percentage}%)`, size: 20 })] }),

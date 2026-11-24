@@ -8,6 +8,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/xlsx.full.min.js"></script>
 <script src="/vendor/docx.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   @font-face {
     font-family: 'Plus Jakarta Sans';
@@ -4675,6 +4676,58 @@ function itemBankResetImportUI() {
   document.getElementById("item-bank-import-warnings").innerHTML = "";
 }
 
+
+// Pull pictures (figures/graphs) out of the Word file and attach each to the question that follows it.
+async function itemBankAttachDocxImages(file, items, pw) {
+  if (typeof JSZip === "undefined") return 0;
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const docFile = zip.file("word/document.xml");
+  const relFile = zip.file("word/_rels/document.xml.rels");
+  if (!docFile || !relFile) return 0;
+  const parse = t => new DOMParser().parseFromString(t, "application/xml");
+  const rels = {};
+  [...parse(await relFile.async("string")).getElementsByTagName("Relationship")].forEach(r => {
+    rels[r.getAttribute("Id")] = r.getAttribute("Target");
+  });
+  const norm = t => (t || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 40);
+  const byText = new Map();
+  items.forEach(it => { const k = norm((it.q || "").replace(/^\s*\d+\s*[.)]\s*/, "")); if (k && !byText.has(k)) byText.set(k, it); });
+
+  let pending = null, attached = 0;
+  const uploaded = {};   // rId -> server path (upload each picture once)
+  const paras = parse(await docFile.async("string")).getElementsByTagName("w:p");
+  for (const p of paras) {
+    const blip = p.getElementsByTagName("a:blip")[0];
+    const rid = blip && (blip.getAttribute("r:embed") || blip.getAttribute("r:link"));
+    if (rid && rels[rid]) pending = rid;
+    const text = [...p.getElementsByTagName("w:t")].map(n => n.textContent).join("").trim();
+    const m = text.match(/^\d+\s*[.)]\s*(.+)$/);
+    if (!m || !pending) continue;
+    const it = byText.get(norm(m[1]));
+    if (it && !it.image) {
+      if (!uploaded[pending]) {
+        const entry = zip.file("word/" + rels[pending].replace(/^\/?(word\/)?/, ""));
+        if (!entry) continue;
+        const ext = (rels[pending].split(".").pop() || "png").toLowerCase();
+        const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext];
+        if (!mime) continue;
+        const blob = await itemBankResizeImage(new Blob([await entry.async("arraybuffer")], { type: mime }), 1000);
+        const fd = new FormData();
+        fd.append("password", pw);
+        fd.append("image", blob, "item.jpg");
+        const res = await fetch("/api/item-image", { method: "POST", body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) continue;
+        uploaded[pending] = data.path;
+      }
+      it.image = uploaded[pending];
+      attached++;
+    }
+    pending = null;   // each figure is repeated before every question that uses it
+  }
+  return attached;
+}
+
 function itemBankImportShowError(msg) {
   const el = document.getElementById("item-bank-import-err");
   el.textContent = msg;
@@ -4691,6 +4744,7 @@ function itemBankRenderImportPreview(items, errors) {
         <div style="color:var(--gray);font-size:.7rem;font-weight:700;text-transform:uppercase;text-align:left;">${escapeHtml(it.topic)}${it.type === "identification" ? ' · Identification' : ''}</div>
         ${it.competency && it.competency.trim() ? `<div style="font-size:.68rem;color:var(--blue-bright,#3b82f6);font-weight:600;margin:2px 0;text-align:left;">🎯 ${escapeHtml(it.competency.trim())}</div>` : ''}
         ${it.passage && it.passage.trim() ? `<div style="font-size:.76rem;color:#5b4a1e;background:#fbf3dc;border-left:3px solid #d4a72c;border-radius:4px;padding:6px 9px;margin:4px 0 6px;text-align:left;white-space:pre-line;">${escapeHtmlBank(it.passage.trim(), escapeHtml)}</div>` : ''}
+        ${it.image ? `<img src="${escapeAttr(it.image)}" alt="Figure" style="display:block;max-width:200px;max-height:130px;margin:4px 0;border:1px solid var(--border);border-radius:6px;background:#fff;">` : ""}
         <div style="font-weight:600;margin:2px 0 4px;text-align:left;">${escapeHtml(it.q)}</div>
         ${it.type === "identification"
           ? `<div style="text-align:left;color:#1e7a34;font-weight:700;">Answer: ${escapeHtml(it.answer || "")}</div>`
@@ -4726,7 +4780,10 @@ document.getElementById("item-bank-import-parse").addEventListener("click", asyn
     (data.items || []).forEach(it => {
       it.topic = typedName || (it.topic || "").trim() || "General";
     });
+    let pics = 0;
+    try { pics = await itemBankAttachDocxImages(fileInput.files[0], data.items || [], pw); } catch (e) { console.warn("Picture extraction failed", e); }
     itemBankRenderImportPreview(data.items, data.errors || []);
+    if (pics) document.getElementById("item-bank-import-summary").textContent += ` · ${pics} with pictures`;
   } catch (err) {
     itemBankImportShowError("Could not reach the server to parse that file.");
   }

@@ -5486,7 +5486,7 @@ function refreshConfigButtons() {
   currentQuizDurationMinutes = st.durationMinutes;
   durBtn.textContent = `Duration: ${st.durationMinutes} min`;
   currentWeighted = st.weightedScoring !== false;
-  document.getElementById("btn-weighted").textContent = `Weighted: ${currentWeighted ? "ON" : "OFF"}`;
+  document.getElementById("btn-weighted").textContent = `Weighted: ${currentWeighted ? "ON" : "OFF"}${st.open ? " 🔒" : ""}`;
 }
 
 socket.on("exam-status-map", ({ statuses }) => {
@@ -5614,7 +5614,9 @@ let currentWeighted = true;
 document.getElementById("btn-weighted").addEventListener("click", () => {
   if (!requireCfgKey()) return;
   document.getElementById("weighted-enabled").checked = currentWeighted;
-  document.getElementById("weighted-err").style.display = "none";
+  const wErr = document.getElementById("weighted-err");
+  wErr.style.display = "none";
+  if (quizIsOpen) { wErr.textContent = "Locked: weighted scoring can't be changed while the exam is open."; wErr.style.display = "block"; }
   document.getElementById("weighted-pw").value = "";
   document.getElementById("weighted-modal").classList.add("open");
 });
@@ -5630,7 +5632,11 @@ socket.on("set-weighted-scoring-success", ({ enabled }) => {
     ? "Multiple choice items with weights now give partial credit (applies to students who log in from now on)."
     : "All multiple choice items are now plain right/wrong (applies to students who log in from now on).");
 });
-socket.on("set-weighted-scoring-failed", () => { document.getElementById("weighted-err").style.display = "block"; });
+socket.on("set-weighted-scoring-failed", (d) => {
+  const err = document.getElementById("weighted-err");
+  err.textContent = (d && d.message) || "Incorrect password. Please try again.";
+  err.style.display = "block";
+});
 
 // ── Exam Duration (minutes) ───────────────────────────────────────────────────
 document.getElementById("btn-quiz-duration").addEventListener("click", () => {
